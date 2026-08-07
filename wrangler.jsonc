@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "yvieerp",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-08-07",
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "yvieerp-db",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "secrets": {
+    "required": ["YVIE_ADMIN_PASSWORD", "YVIE_SESSION_SECRET"]
+  },
+  "observability": {
+    "enabled": true
+  }
+}
