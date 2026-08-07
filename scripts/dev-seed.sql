@@ -1,4 +1,5 @@
--- Somente para desenvolvimento local. Não aplique este arquivo em produção.
+-- Dados fictícios opcionais para desenvolvimento local.
+-- Este arquivo fica fora de /migrations para nunca ser aplicado por engano no D1 de produção.
 INSERT OR IGNORE INTO customers (id,name,phone,instagram,city,tags) VALUES
 ('cus_demo_1','Layssa Andrade','81999881122','@layssa.a','Recife','["VIP"]'),
 ('cus_demo_2','Roselita Gomes','81988772211','@roselitinha','Olinda','["Recorrente"]');

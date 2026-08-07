@@ -1,6 +1,6 @@
 # YVIE ERP
 
-Sistema interno da YVIE para **vendas, pedidos, produtos, estoque, entradas, clientes e financeiro**. O projeto foi estruturado para rodar como uma aplicação full-stack no **Cloudflare Workers**, com front-end React/Vite, API Worker e banco **Cloudflare D1**.
+Sistema interno da YVIE para **vendas, pedidos, produtos, estoque, entradas, clientes e financeiro**. O projeto foi estruturado para rodar como aplicação full-stack no **Cloudflare Workers**, com front-end React/Vite, API Worker e banco **Cloudflare D1**.
 
 ## Stack
 
@@ -16,20 +16,26 @@ Sistema interno da YVIE para **vendas, pedidos, produtos, estoque, entradas, cli
 
 ```text
 src/
-  components/     componentes compartilhados e shell do sistema
-  context/        carregamento e sincronização dos dados
-  lib/            cliente da API e formatadores
-  pages/          módulos funcionais do ERP
+  components/       componentes compartilhados e shell do sistema
+  context/          carregamento e sincronização dos dados
+  lib/              cliente da API e formatadores
+  pages/            módulos funcionais do ERP
+  styles/           estilos separados por responsabilidade
 worker/
-  auth.ts         autenticação e sessão
-  db.ts           serialização e leitura do D1
-  index.ts        API do Worker
+  auth.ts           autenticação e sessão
+  db.ts             leitura e mapeamento do D1
+  http.ts           helpers HTTP
+  index.ts          roteador da API
+  routes/           regras de clientes, produtos, estoque, vendas e despesas
 migrations/
   0001_initial.sql  schema de produção
-  9999_dev_seed.sql dados fictícios opcionais para desenvolvimento
+scripts/
+  dev-seed.sql      dados fictícios opcionais apenas para desenvolvimento
 public/
   yvie-logo.svg
 ```
+
+Uma visão mais detalhada está em [`docs/architecture.md`](docs/architecture.md).
 
 ## Funcionalidades implementadas
 
@@ -47,6 +53,7 @@ public/
 - Kanban de pedidos: `Separando → Pronto → Entregue`.
 - Despesas e resultado líquido.
 - Relatórios de estoque, margem, ticket, produtos e clientes.
+- Notificações de erro não bloqueantes e retorno automático ao login quando a sessão expira.
 
 ## Desenvolvimento local
 
@@ -67,17 +74,19 @@ YVIE_SESSION_SECRET=uma-chave-aleatoria-longa-com-32-ou-mais-caracteres
 
 `.dev.vars` está ignorado pelo Git e **não deve ser commitado**.
 
-### 3. Aplique as migrations locais
+### 3. Aplique o schema local
 
 ```bash
 npm run db:migrate:local
 ```
 
-Opcionalmente, carregue os dados fictícios de desenvolvimento:
+Opcionalmente, carregue dados fictícios de desenvolvimento:
 
 ```bash
 npm run db:seed:local
 ```
+
+O seed fica deliberadamente em `scripts/dev-seed.sql`, fora de `migrations/`, para não entrar no fluxo de migrations de produção.
 
 ### 4. Execute
 
@@ -87,7 +96,7 @@ npm run dev
 
 ## Deploy no Cloudflare
 
-O `wrangler.jsonc` usa o provisionamento automático do Wrangler para o binding D1 `DB`. No primeiro deploy, o Cloudflare pode criar o recurso D1 e vinculá-lo ao Worker.
+O `wrangler.jsonc` usa provisionamento automático do Wrangler para o binding D1 `DB`. No primeiro deploy, o Cloudflare pode criar o recurso D1 e vinculá-lo ao Worker.
 
 ### 1. Configure os secrets no Cloudflare
 
@@ -110,7 +119,7 @@ npm run deploy
 npm run db:migrate:remote
 ```
 
-> **Não aplique `9999_dev_seed.sql` em produção.** Ele existe apenas para desenvolvimento local.
+Como apenas migrations de produção ficam na pasta `migrations/`, esse comando não carrega os dados fictícios do desenvolvimento.
 
 Depois das migrations, execute novamente `npm run deploy` se necessário.
 
@@ -123,15 +132,20 @@ Se o repositório for conectado ao Cloudflare Workers Builds:
 - Os secrets `YVIE_ADMIN_PASSWORD` e `YVIE_SESSION_SECRET` devem ser configurados no Worker/Cloudflare, nunca como variáveis públicas do Vite.
 - O D1 deve permanecer com o binding `DB`.
 
-## Segurança
+## Segurança e integridade
 
 - O front-end nunca recebe o valor dos secrets.
 - Todos os endpoints de negócio exigem sessão válida.
 - Operações de escrita rejeitam `Origin` diferente do próprio site.
 - SQL usa prepared statements/bindings do D1.
-- As vendas utilizam `D1Database.batch()` para aplicar venda, itens, movimentos e baixa de estoque em uma transação.
-- A coluna de estoque possui `CHECK (stock >= 0)`, protegendo contra estoque negativo inclusive em concorrência.
+- As vendas utilizam `D1Database.batch()` para aplicar venda, itens, movimentos e baixa de estoque na mesma transação.
+- A coluna de estoque possui `CHECK (stock >= 0)`.
+- Variantes com estoque não podem ser removidas antes de o estoque ser ajustado.
 - Exclusões que quebrariam histórico são bloqueadas; produtos são arquivados.
+
+## CI
+
+`.github/workflows/ci.yml` instala as dependências e executa `npm run build` em pushes e pull requests para `main`.
 
 ## Próximas evoluções recomendadas
 

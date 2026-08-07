@@ -61,7 +61,8 @@ Dados que participam de histórico comercial não devem desaparecer fisicamente.
 - produtos são arquivados;
 - vendas canceladas permanecem registradas;
 - clientes com vendas vinculadas não podem ser excluídos;
-- variantes antigas podem ser desativadas sem apagar vendas anteriores.
+- variantes antigas podem ser desativadas sem apagar vendas anteriores;
+- uma variante com quantidade positiva precisa ter o estoque ajustado antes de ser removida da estrutura ativa.
 
 ## Organização do front-end
 
@@ -76,8 +77,26 @@ src/
 
 As ações globais ficam no shell. Ações específicas ficam na página correspondente para evitar repetição de botões e ambiguidade de fluxo.
 
+## Organização do Worker
+
+```text
+worker/
+├─ auth.ts        assinatura e validação de sessão
+├─ db.ts          leitura e serialização do D1
+├─ http.ts        respostas, parsing e proteção de origem
+├─ index.ts       roteamento HTTP
+└─ routes/
+   ├─ customers.ts
+   ├─ expenses.ts
+   ├─ inventory.ts
+   ├─ products.ts
+   └─ sales.ts
+```
+
+As regras de domínio ficam fora do roteador principal para reduzir acoplamento e facilitar evolução e testes.
+
 ## Deploy
 
 O projeto deve ser publicado pelo Wrangler. O binding de banco usado pelo Worker chama-se `DB`; os secrets esperados são `YVIE_ADMIN_PASSWORD` e `YVIE_SESSION_SECRET`.
 
-O schema de produção está em `migrations/0001_initial.sql`. O arquivo `migrations/9999_dev_seed.sql` é apenas para desenvolvimento e não deve ser aplicado ao banco de produção.
+O schema de produção está em `migrations/0001_initial.sql`. Dados fictícios opcionais ficam em `scripts/dev-seed.sql`, fora da pasta de migrations, para que o comando de migration remota nunca os aplique por engano.
