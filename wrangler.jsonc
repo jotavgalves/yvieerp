@@ -11,6 +11,7 @@
     {
       "binding": "DB",
       "database_name": "yvieerp-db",
+      "database_id": "ce82346d-f4ec-4838-8cf5-725eb77613ba",
       "migrations_dir": "migrations"
     }
   ],
