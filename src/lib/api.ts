@@ -18,6 +18,17 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (response.status === 204) return undefined as T;
   const payload = await response.json().catch(() => ({})) as { error?: string };
-  if (!response.ok) throw new ApiError(payload.error || 'Não foi possível concluir a operação.', response.status);
+  if (!response.ok) {
+    const message = payload.error || 'Não foi possível concluir a operação.';
+    if (typeof window !== 'undefined' && !path.startsWith('/api/auth/')) {
+      window.dispatchEvent(new CustomEvent('yvie:toast', { detail: { message, tone: 'error' } }));
+      if (response.status === 401) window.dispatchEvent(new Event('yvie:unauthorized'));
+    }
+    throw new ApiError(message, response.status);
+  }
   return payload as T;
+}
+
+export function notify(message: string, tone: 'success' | 'error' = 'success') {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('yvie:toast', { detail: { message, tone } }));
 }

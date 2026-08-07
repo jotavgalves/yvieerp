@@ -1,6 +1,7 @@
 import { LoaderCircle, TriangleAlert } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { AppShell, type PageKey } from './components/AppShell';
+import { ToastHost } from './components/ToastHost';
 import { Button } from './components/ui';
 import { DataProvider, useData } from './context/DataContext';
 import { api } from './lib/api';
@@ -30,8 +31,15 @@ function AppBody(){
 
 export default function App(){
   const [auth,setAuth]=useState<'checking'|'in'|'out'>('checking');
-  useEffect(()=>{api<{authenticated:boolean}>('/api/auth/session').then(r=>setAuth(r.authenticated?'in':'out')).catch(()=>setAuth('out'))},[]);
-  if(auth==='checking')return <div className="app-loader"><LoaderCircle className="spin"/><span>Validando sessão...</span></div>;
-  if(auth==='out')return <Login onSuccess={()=>setAuth('in')}/>;
-  return <DataProvider><AppBody/></DataProvider>;
+  useEffect(()=>{
+    api<{authenticated:boolean}>('/api/auth/session').then(r=>setAuth(r.authenticated?'in':'out')).catch(()=>setAuth('out'));
+    const unauthorized=()=>setAuth('out');
+    window.addEventListener('yvie:unauthorized',unauthorized);
+    return()=>window.removeEventListener('yvie:unauthorized',unauthorized);
+  },[]);
+  let content;
+  if(auth==='checking')content=<div className="app-loader"><LoaderCircle className="spin"/><span>Validando sessão...</span></div>;
+  else if(auth==='out')content=<Login onSuccess={()=>setAuth('in')}/>;
+  else content=<DataProvider><AppBody/></DataProvider>;
+  return <>{content}<ToastHost/></>;
 }
