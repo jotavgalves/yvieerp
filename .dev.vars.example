@@ -1,0 +1,2 @@
+YVIE_ADMIN_PASSWORD=troque-esta-senha
+YVIE_SESSION_SECRET=gere-uma-chave-aleatoria-longa-com-pelo-menos-32-caracteres
