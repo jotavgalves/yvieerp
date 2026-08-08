@@ -8,8 +8,11 @@ type ReturnPayload={
   exchangeItems?:Array<{productId?:string;variantId?:string;quantity?:number;unitPrice?:number}>;
   refundAmount?:number;
   creditAmount?:number;
+  additionalPaymentStatus?:'Pago'|'Pendente';
   notes?:string;
 };
+
+const isCardMethod=(method:string)=>['Débito','Crédito'].includes(method);
 
 export async function createReturn(request:Request,env:Env,saleId:string){
   const input=await readJson<ReturnPayload>(request);
@@ -20,6 +23,12 @@ export async function createReturn(request:Request,env:Env,saleId:string){
   const exchange=Array.isArray(input.exchangeItems)?input.exchangeItems:[];
   if(!returned.length)return fail('Selecione ao menos um item que está retornando.');
 
+  const pendingRows=await env.DB.prepare(`SELECT * FROM accounts_receivable WHERE sale_id=? AND status='Pendente' ORDER BY COALESCE(due_date,substr(created_at,1,10)),created_at`).bind(saleId).all<any>();
+  const pendingReceivables=pendingRows.results||[];
+  const pendingTotal=pendingReceivables.reduce((sum:any,row:any)=>sum+Number(row.amount||0),0);
+  if(sale.payment_status==='Pendente'&&pendingTotal<=0.009)return fail('Este pedido está marcado como pendente, mas não possui uma conta a receber ativa. Corrija o financeiro antes de registrar a devolução.',409);
+  if(sale.payment_status==='Pago'&&pendingTotal>0.009)return fail('Este pedido está marcado como pago, mas ainda possui conta a receber pendente. Corrija o financeiro antes de registrar a devolução.',409);
+
   const returnId=makeId('ret');const timestamp=now();const numberCode=`TR-${Date.now().toString().slice(-8)}`;
   const statements:D1PreparedStatement[]=[];
   let returnedValue=0;
@@ -29,12 +38,14 @@ export async function createReturn(request:Request,env:Env,saleId:string){
     if(!item)return fail('Um dos itens não pertence a essa venda.',409);
     const quantity=integer(raw.quantity);
     if(quantity<1)return fail('Quantidade devolvida inválida.');
-    const already=await env.DB.prepare(`SELECT COALESCE(SUM(ri.quantity),0) total FROM return_items ri JOIN returns r ON r.id=ri.return_id WHERE r.sale_id=? AND ri.sale_item_id=? AND ri.direction='Entrada'`).bind(saleId,item.id).first<any>();
-    if(quantity+Number(already?.total||0)>Number(item.quantity))return fail(`A quantidade devolvida de ${item.product_name} ultrapassa o que foi vendido.`,409);
+    const already=Number(item.returned_quantity||0);
+    if(quantity+already>Number(item.quantity))return fail(`A quantidade devolvida de ${item.product_name} ultrapassa o que ainda pode ser devolvido.`,409);
+    const unitCost=Math.max(0,Number(item.unit_cost||0));
     returnedValue+=quantity*Number(item.unit_price);
-    statements.push(env.DB.prepare(`UPDATE product_variants SET stock=stock+?,updated_at=? WHERE id=?`).bind(quantity,timestamp,item.variant_id));
-    statements.push(env.DB.prepare(`INSERT INTO return_items(id,return_id,sale_item_id,product_id,variant_id,quantity,direction,unit_cost,unit_price) VALUES(?,?,?,?,?,?,?,?,?)`).bind(makeId('rti'),returnId,item.id,item.product_id,item.variant_id,quantity,'Entrada',item.unit_cost,item.unit_price));
-    statements.push(env.DB.prepare(`INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,reference_type,reference_id,note,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`).bind(makeId('mov'),item.product_id,item.variant_id,'Devolução',quantity,item.unit_cost,'return',returnId,`${input.type==='Troca'?'Troca':'Devolução'} ${sale.number}`,timestamp));
+    statements.push(env.DB.prepare(`UPDATE sale_items SET returned_quantity=returned_quantity+? WHERE id=?`).bind(quantity,item.id));
+    statements.push(env.DB.prepare(`UPDATE product_variants SET average_cost=CASE WHEN stock+?>0 THEN ((stock*average_cost)+(?*?))/(stock+?) ELSE ? END,stock=stock+?,updated_at=? WHERE id=?`).bind(quantity,quantity,unitCost,quantity,unitCost,quantity,timestamp,item.variant_id));
+    statements.push(env.DB.prepare(`INSERT INTO return_items(id,return_id,sale_item_id,product_id,variant_id,quantity,direction,unit_cost,unit_price) VALUES(?,?,?,?,?,?,?,?,?)`).bind(makeId('rti'),returnId,item.id,item.product_id,item.variant_id,quantity,'Entrada',unitCost,item.unit_price));
+    statements.push(env.DB.prepare(`INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,reference_type,reference_id,note,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`).bind(makeId('mov'),item.product_id,item.variant_id,'Devolução',quantity,unitCost,'return',returnId,`${input.type==='Troca'?'Troca':'Devolução'} ${sale.number}`,timestamp));
   }
 
   let exchangeValue=0;
@@ -43,18 +54,40 @@ export async function createReturn(request:Request,env:Env,saleId:string){
     if(!variant||!variant.active||variant.product_status!=='Ativo')return fail('Uma das peças de troca não está disponível.',409);
     const quantity=integer(raw.quantity);
     if(quantity<1||Number(variant.stock)<quantity)return fail(`Estoque insuficiente para ${variant.product_name}.`,409);
-    const unitPrice=Math.max(0,number(raw.unitPrice,variant.cash_price||variant.sale_price));exchangeValue+=quantity*unitPrice;
+    const cashPrice=Math.max(0,number(variant.cash_price,number(variant.sale_price)));
+    const cardPrice=Math.max(0,number(variant.card_price,cashPrice));
+    const automaticPrice=isCardMethod(String(sale.payment_method||''))?cardPrice:cashPrice;
+    const unitPrice=Math.max(0,number(raw.unitPrice,automaticPrice));exchangeValue+=quantity*unitPrice;
     statements.push(env.DB.prepare(`UPDATE product_variants SET stock=stock-?,updated_at=? WHERE id=?`).bind(quantity,timestamp,variant.id));
     statements.push(env.DB.prepare(`INSERT INTO return_items(id,return_id,sale_item_id,product_id,variant_id,quantity,direction,unit_cost,unit_price) VALUES(?,?,?,?,?,?,?,?,?)`).bind(makeId('rti'),returnId,null,variant.product_id,variant.id,quantity,'Saída',variant.average_cost,unitPrice));
     statements.push(env.DB.prepare(`INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,reference_type,reference_id,note,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`).bind(makeId('mov'),variant.product_id,variant.id,'Venda',-quantity,variant.average_cost,'return',returnId,`Saída em troca ${sale.number}`,timestamp));
   }
 
-  const available=Math.max(0,returnedValue-exchangeValue);
-  const refund=Math.max(0,number(input.refundAmount,available));
+  const customerFavor=Math.max(0,returnedValue-exchangeValue);
+  const additional=Math.max(0,exchangeValue-returnedValue);
+  const debtOffset=Math.min(customerFavor,pendingTotal);
+  const settlementAvailable=Math.max(0,customerFavor-debtOffset);
+  const refund=Math.max(0,number(input.refundAmount,settlementAvailable));
   const credit=Math.max(0,number(input.creditAmount,0));
-  if(refund+credit>available+0.009)return fail('Reembolso + crédito não podem ultrapassar o valor líquido que está retornando para a cliente.',409);
-  statements.unshift(env.DB.prepare(`INSERT INTO returns(id,number,sale_id,type,refund_amount,credit_amount,notes,created_at) VALUES(?,?,?,?,?,?,?,?)`).bind(returnId,numberCode,saleId,input.type==='Troca'?'Troca':'Devolução',refund,credit,typeof input.notes==='string'&&input.notes.trim()?input.notes.trim():null,timestamp));
+  if(Math.abs((refund+credit)-settlementAvailable)>0.009)return fail('Defina todo o valor restante entre reembolso e crédito da cliente.',409);
+  const additionalStatus=additional>0?(input.additionalPaymentStatus==='Pendente'?'Pendente':'Pago'):null;
+
+  statements.unshift(env.DB.prepare(`INSERT INTO returns(id,number,sale_id,type,refund_amount,credit_amount,returned_value,exchange_value,debt_offset,additional_amount,additional_payment_status,notes,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(returnId,numberCode,saleId,input.type==='Troca'?'Troca':'Devolução',refund,credit,returnedValue,exchangeValue,debtOffset,additional,additionalStatus,typeof input.notes==='string'&&input.notes.trim()?input.notes.trim():null,timestamp));
+
+  const receivableMustChange=debtOffset>0.009||(additional>0.009&&additionalStatus==='Pendente');
+  if(receivableMustChange){
+    const newPending=Math.max(0,pendingTotal-debtOffset+(additionalStatus==='Pendente'?additional:0));
+    for(const row of pendingReceivables)statements.push(env.DB.prepare(`UPDATE accounts_receivable SET status='Cancelado',updated_at=? WHERE id=? AND status='Pendente'`).bind(timestamp,row.id));
+    if(newPending>0.009){
+      const dueDate=pendingReceivables.find((r:any)=>r.due_date)?.due_date||timestamp.slice(0,10);
+      statements.push(env.DB.prepare(`INSERT INTO accounts_receivable(id,sale_id,description,amount,due_date,status,created_at,updated_at) VALUES(?,?,?,?,?,'Pendente',?,?)`).bind(makeId('rec'),saleId,`Saldo após ${numberCode}`,newPending,dueDate,timestamp,timestamp));
+      statements.push(env.DB.prepare(`UPDATE sales SET payment_status='Pendente',updated_at=? WHERE id=?`).bind(timestamp,saleId));
+    }else{
+      statements.push(env.DB.prepare(`UPDATE sales SET payment_status='Pago',updated_at=? WHERE id=?`).bind(timestamp,saleId));
+    }
+  }
+
   if(credit>0)statements.push(env.DB.prepare(`INSERT INTO customer_credit_movements(id,customer_id,sale_id,return_id,type,amount,note,created_at) VALUES(?,?,?,?,?,?,?,?)`).bind(makeId('ccm'),sale.customer_id,saleId,returnId,'Crédito',credit,`Crédito gerado por ${numberCode}`,timestamp));
   await env.DB.batch(statements);
-  return json({id:returnId,number:numberCode,returnedValue,exchangeValue,refundAmount:refund,creditAmount:credit},201);
+  return json({id:returnId,number:numberCode,returnedValue,exchangeValue,debtOffset,additionalAmount:additional,additionalPaymentStatus:additionalStatus,refundAmount:refund,creditAmount:credit},201);
 }
