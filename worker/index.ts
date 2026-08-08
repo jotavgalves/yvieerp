@@ -2,12 +2,15 @@ import { clearSessionCookie, createSession, passwordMatches, sessionCookie, veri
 import { bootstrap } from './db';
 import { fail, json, readJson, sameOrigin } from './http';
 import { createCustomer, deleteCustomer, updateCustomer } from './routes/customers';
-import { createExpense, deleteExpense } from './routes/expenses';
+import { createExpense, deleteExpense, markExpensePaid, updateExpense } from './routes/expenses';
 import { adjustStock, createStockEntry } from './routes/inventory';
+import { applyInventoryCount, cancelInventoryCount, createInventoryCount } from './routes/inventoryCounts';
 import { deleteMedia, getMedia, uploadMedia } from './routes/media';
 import { savePricing } from './routes/pricing';
 import { archiveProduct, createProduct, duplicateProduct, updateProduct } from './routes/products';
 import { cancelPurchase, createPurchase, receivePurchase } from './routes/purchases';
+import { cancelReceivable, receiveReceivable } from './routes/receivables';
+import { createReturn } from './routes/returns';
 import { cancelSale, createSale, updateOrderStatus } from './routes/sales';
 import { archiveSupplier, createSupplier, updateSupplier } from './routes/suppliers';
 import type { Env } from './types';
@@ -73,6 +76,11 @@ export default {
       const adjustment=url.pathname.match(/^\/api\/inventory\/([^/]+)\/adjust$/);
       if(adjustment&&request.method==='POST')return adjustStock(request,env,adjustment[1]);
       if(url.pathname==='/api/inventory/entries'&&request.method==='POST')return createStockEntry(request,env);
+      if(url.pathname==='/api/inventory/counts'&&request.method==='POST')return createInventoryCount(request,env);
+      const countApply=url.pathname.match(/^\/api\/inventory\/counts\/([^/]+)\/apply$/);
+      if(countApply&&request.method==='POST')return applyInventoryCount(env,countApply[1]);
+      const countCancel=url.pathname.match(/^\/api\/inventory\/counts\/([^/]+)\/cancel$/);
+      if(countCancel&&request.method==='POST')return cancelInventoryCount(env,countCancel[1]);
 
       const pricing=url.pathname.match(/^\/api\/pricing\/([^/]+)$/);
       if(pricing&&request.method==='POST')return savePricing(request,env,pricing[1]);
@@ -82,9 +90,19 @@ export default {
       if(status&&request.method==='PATCH')return updateOrderStatus(request,env,status[1]);
       const cancellation=url.pathname.match(/^\/api\/sales\/([^/]+)\/cancel$/);
       if(cancellation&&request.method==='POST')return cancelSale(env,cancellation[1]);
+      const returnRoute=url.pathname.match(/^\/api\/sales\/([^/]+)\/returns$/);
+      if(returnRoute&&request.method==='POST')return createReturn(request,env,returnRoute[1]);
+
+      const receivableReceive=url.pathname.match(/^\/api\/receivables\/([^/]+)\/receive$/);
+      if(receivableReceive&&request.method==='POST')return receiveReceivable(env,receivableReceive[1]);
+      const receivableCancel=url.pathname.match(/^\/api\/receivables\/([^/]+)\/cancel$/);
+      if(receivableCancel&&request.method==='POST')return cancelReceivable(env,receivableCancel[1]);
 
       if(url.pathname==='/api/expenses'&&request.method==='POST')return createExpense(request,env);
+      const expensePaid=url.pathname.match(/^\/api\/expenses\/([^/]+)\/paid$/);
+      if(expensePaid&&request.method==='POST')return markExpensePaid(env,expensePaid[1]);
       const expense=url.pathname.match(/^\/api\/expenses\/([^/]+)$/);
+      if(expense&&request.method==='PUT')return updateExpense(request,env,expense[1]);
       if(expense&&request.method==='DELETE')return deleteExpense(env,expense[1]);
 
       return fail('Rota não encontrada.',404);
