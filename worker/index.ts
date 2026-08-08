@@ -4,6 +4,7 @@ import { fail, json, readJson, sameOrigin } from './http';
 import { adjustCustomerCredit } from './routes/customerCredits';
 import { createCustomer, deleteCustomer, updateCustomer } from './routes/customers';
 import { createExpense, deleteExpense, markExpensePaid, updateExpense } from './routes/expenses';
+import { checkIntegrity } from './routes/integrity';
 import { adjustStock, createStockEntry, deleteStockEntry } from './routes/inventory';
 import { applyInventoryCount, cancelInventoryCount, createInventoryCount } from './routes/inventoryCounts';
 import { deleteMedia, getMedia, uploadMedia } from './routes/media';
@@ -43,6 +44,7 @@ export default {
       if(['POST','PUT','PATCH','DELETE'].includes(request.method)&&!sameOrigin(request))return fail('Origem da requisição não autorizada.',403);
 
       if(url.pathname==='/api/bootstrap'&&request.method==='GET')return json(await bootstrap(env));
+      if(url.pathname==='/api/integrity'&&request.method==='GET')return checkIntegrity(env);
       if(url.pathname==='/api/media'&&request.method==='POST')return uploadMedia(request,env);
       const media=url.pathname.match(/^\/api\/media\/([^/]+)$/);if(media&&request.method==='DELETE')return deleteMedia(env,media[1]);
 
@@ -96,7 +98,14 @@ export default {
     }catch(error){
       console.error(error);const message=error instanceof Error?error.message:'';
       if(message==='JSON_INVALID')return fail('Corpo da requisição inválido.',400);
-      if(message.includes('CHECK constraint failed'))return fail('A operação deixaria os dados em um estado inválido. Atualize as informações e tente novamente.',409);
+      if(message.includes('NEGATIVE_CUSTOMER_CREDIT'))return fail('Esta operação deixaria o crédito da cliente negativo. Atualize os dados e tente novamente.',409);
+      if(message.includes('PURCHASE_ALREADY_RECEIVED')||message.includes('purchase-receive:'))return fail('Esta compra já foi recebida. Atualize a tela antes de continuar.',409);
+      if(message.includes('PURCHASE_ALREADY_REVERSED')||message.includes('purchase-reverse:'))return fail('O recebimento desta compra já foi estornado. Atualize a tela.',409);
+      if(message.includes('ENTRY_ALREADY_DELETED')||message.includes('entry-delete:'))return fail('Esta entrada já foi excluída ou está sendo revertida. Atualize a tela.',409);
+      if(message.includes('INVENTORY_COUNT_ALREADY_APPLIED')||message.includes('inventory-count:'))return fail('Este inventário já foi aplicado. Atualize a tela.',409);
+      if(message.includes('sale-reverse:'))return fail('Este pedido já foi cancelado/excluído ou está sendo revertido. Atualize a tela.',409);
+      if(message.includes('return-settlement:'))return fail('Este pedido mudou enquanto a troca/devolução estava aberta. Atualize a tela e refaça o acerto com o saldo atual.',409);
+      if(message.includes('CHECK constraint failed'))return fail('A operação foi interrompida porque os dados mudaram enquanto você trabalhava. Atualize a tela e confira o estoque antes de tentar novamente.',409);
       if(message.includes('UNIQUE constraint failed'))return fail('Já existe um registro com este SKU ou identificador.',409);
       return fail('Não foi possível concluir a operação.',500);
     }

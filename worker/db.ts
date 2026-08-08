@@ -45,7 +45,7 @@ export async function bootstrap(env:Env){
   const receivables=(receivablesR.results as any[]).map(r=>({id:r.id,saleId:r.sale_id,saleNumber:r.sale_number,customerName:r.customer_name,description:r.description,amount:Number(r.amount),dueDate:r.due_date,status:r.status,receivedAt:r.received_at,createdAt:r.created_at}));
   const movements=(movementsR.results as any[]).map(m=>({id:m.id,productId:m.product_id,variantId:m.variant_id,productName:m.product_name,color:m.color,size:m.size,type:m.type,quantity:Number(m.quantity),unitCost:m.unit_cost===null?null:Number(m.unit_cost),referenceType:m.reference_type,referenceId:m.reference_id,note:m.note,createdAt:m.created_at}));
   const returnItems=(returnItemsR.results as any[]).map(i=>({id:i.id,returnId:i.return_id,saleItemId:i.sale_item_id,productId:i.product_id,variantId:i.variant_id,productName:i.product_name,color:i.color,size:i.size,quantity:Number(i.quantity),direction:i.direction,unitCost:Number(i.unit_cost),unitPrice:Number(i.unit_price)}));
-  const returns=(returnsR.results as any[]).map(r=>({id:r.id,number:r.number,saleId:r.sale_id,saleNumber:r.sale_number,customerName:r.customer_name,type:r.type,refundAmount:Number(r.refund_amount),creditAmount:Number(r.credit_amount),notes:r.notes,createdAt:r.created_at,items:returnItems.filter(i=>i.returnId===r.id)}));
+  const returns=(returnsR.results as any[]).map(r=>({id:r.id,number:r.number,saleId:r.sale_id,saleNumber:r.sale_number,customerName:r.customer_name,type:r.type,refundAmount:Number(r.refund_amount),creditAmount:Number(r.credit_amount),returnedValue:Number(r.returned_value||0),exchangeValue:Number(r.exchange_value||0),debtOffset:Number(r.debt_offset||0),additionalAmount:Number(r.additional_amount||0),additionalPaymentStatus:r.additional_payment_status||null,notes:r.notes,createdAt:r.created_at,items:returnItems.filter(i=>i.returnId===r.id)}));
   const countItems=(countItemsR.results as any[]).map(i=>({id:i.id,countId:i.count_id,productId:i.product_id,variantId:i.variant_id,productName:i.product_name,color:i.color,size:i.size,expectedQuantity:Number(i.expected_quantity),countedQuantity:Number(i.counted_quantity),difference:Number(i.difference)}));
   const inventoryCounts=(countsR.results as any[]).map(c=>({id:c.id,title:c.title,status:c.status,notes:c.notes,createdAt:c.created_at,appliedAt:c.applied_at,items:countItems.filter(i=>i.countId===c.id)}));
   const ownerTransactions=(ownerR.results as any[]).map(o=>({id:o.id,type:o.type,amount:Number(o.amount),transactionDate:o.transaction_date,notes:o.notes||null,createdAt:o.created_at}));
@@ -53,10 +53,11 @@ export async function bootstrap(env:Env){
   const validSales=sales.filter(s=>s.orderStatus!=='Cancelado');
   const grossSales=validSales.reduce((a,s)=>a+s.total,0);
   const baseCost=validSales.reduce((a,s)=>a+s.costTotal,0);
-  const returnValue=returns.reduce((a,r)=>a+r.refundAmount+r.creditAmount,0);
+  const returnedRevenue=returnItems.filter(i=>i.direction==='Entrada').reduce((a,i)=>a+i.quantity*i.unitPrice,0);
+  const exchangeRevenue=returnItems.filter(i=>i.direction==='Saída').reduce((a,i)=>a+i.quantity*i.unitPrice,0);
   const returnedCost=returnItems.filter(i=>i.direction==='Entrada').reduce((a,i)=>a+i.quantity*i.unitCost,0);
   const exchangeCost=returnItems.filter(i=>i.direction==='Saída').reduce((a,i)=>a+i.quantity*i.unitCost,0);
-  const revenue=Math.max(0,grossSales-returnValue);
+  const revenue=Math.max(0,grossSales-returnedRevenue+exchangeRevenue);
   const cost=Math.max(0,baseCost-returnedCost+exchangeCost);
   const expenseTotal=expenses.filter(e=>e.status==='Pago').reduce((a,e)=>a+e.amount,0);
   const grossProfit=revenue-cost;const netProfit=grossProfit-expenseTotal;
