@@ -1,5 +1,5 @@
 -- Teste de fumaça executado somente no D1 local do CI.
--- O uso direto das colunas/tabelas novas já valida que a migration 0006 foi aplicada.
+-- Exercita relações críticas de estoque, crédito, compras, exclusão segura e capital.
 
 DELETE FROM customer_credit_movements WHERE id LIKE 'smoke_%';
 DELETE FROM accounts_receivable WHERE id LIKE 'smoke_%';
@@ -10,6 +10,9 @@ DELETE FROM sale_items WHERE id LIKE 'smoke_%';
 DELETE FROM sales WHERE id LIKE 'smoke_%';
 DELETE FROM stock_entry_items WHERE id LIKE 'smoke_%';
 DELETE FROM stock_entries WHERE id LIKE 'smoke_%';
+DELETE FROM purchase_items WHERE id LIKE 'smoke_%';
+DELETE FROM purchases WHERE id LIKE 'smoke_%';
+DELETE FROM suppliers WHERE id LIKE 'smoke_%';
 DELETE FROM owner_transactions WHERE id LIKE 'smoke_%';
 DELETE FROM product_variants WHERE id LIKE 'smoke_%';
 DELETE FROM products WHERE id LIKE 'smoke_%';
@@ -52,6 +55,40 @@ INSERT INTO accounts_receivable(id,sale_id,description,amount,due_date,status,cr
 VALUES('smoke_receivable','smoke_sale_2','Saldo smoke',40,date('now'),'Pendente',datetime('now'),datetime('now'));
 INSERT INTO smoke_assertions_ci SELECT CASE WHEN (SELECT SUM(amount) FROM customer_credit_movements WHERE customer_id='smoke_customer')=10 THEN 1 ELSE 0 END;
 INSERT INTO smoke_assertions_ci SELECT CASE WHEN (SELECT amount FROM accounts_receivable WHERE id='smoke_receivable')=40 THEN 1 ELSE 0 END;
+
+-- Compra recebida e estornada deve voltar exatamente ao estoque/custo anterior.
+INSERT INTO suppliers(id,name,active,created_at,updated_at) VALUES('smoke_supplier','Fornecedor Smoke',1,datetime('now'),datetime('now'));
+INSERT INTO products(id,name,category,status,created_at,updated_at) VALUES('smoke_purchase_product','Produto Compra Smoke','Teste','Ativo',datetime('now'),datetime('now'));
+INSERT INTO product_variants(id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,cash_price,card_price,active,created_at,updated_at)
+VALUES('smoke_purchase_variant','smoke_purchase_product','Azul','G','SMOKE-PUR-SKU',5,1,20,50,50,55,1,datetime('now'),datetime('now'));
+INSERT INTO purchases(id,number,supplier_id,purchase_date,status,items_subtotal,freight_cost,other_cost,total_cost,total_units,received_at,created_at,updated_at)
+VALUES('smoke_purchase','SMOKE-CMP','smoke_supplier',date('now'),'Recebido',90,0,0,90,3,datetime('now'),datetime('now'),datetime('now'));
+INSERT INTO purchase_items(id,purchase_id,product_id,variant_id,quantity,unit_cost)
+VALUES('smoke_purchase_item','smoke_purchase','smoke_purchase_product','smoke_purchase_variant',3,30);
+UPDATE product_variants SET stock=8,average_cost=23.75 WHERE id='smoke_purchase_variant';
+INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,reference_type,reference_id,note,created_at)
+VALUES('smoke_purchase_move','smoke_purchase_product','smoke_purchase_variant','Entrada',3,30,'purchase','smoke_purchase','SMOKE-CMP',datetime('now'));
+INSERT INTO smoke_assertions_ci SELECT CASE WHEN (SELECT stock FROM product_variants WHERE id='smoke_purchase_variant')=8 THEN 1 ELSE 0 END;
+INSERT INTO smoke_assertions_ci SELECT CASE WHEN ABS((SELECT average_cost FROM product_variants WHERE id='smoke_purchase_variant')-23.75)<0.001 THEN 1 ELSE 0 END;
+UPDATE product_variants SET stock=5,average_cost=20 WHERE id='smoke_purchase_variant';
+INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,reference_type,reference_id,note,created_at)
+VALUES('smoke_purchase_reverse','smoke_purchase_product','smoke_purchase_variant','Cancelamento',-3,30,'purchase_reversal','smoke_purchase','Estorno SMOKE-CMP',datetime('now'));
+UPDATE purchases SET status='Cancelado',reversed_at=datetime('now'),reversal_reason='Recebimento estornado',updated_at=datetime('now') WHERE id='smoke_purchase';
+INSERT INTO smoke_assertions_ci SELECT CASE WHEN (SELECT stock FROM product_variants WHERE id='smoke_purchase_variant')=5 THEN 1 ELSE 0 END;
+INSERT INTO smoke_assertions_ci SELECT CASE WHEN ABS((SELECT average_cost FROM product_variants WHERE id='smoke_purchase_variant')-20)<0.001 THEN 1 ELSE 0 END;
+INSERT INTO smoke_assertions_ci SELECT CASE WHEN (SELECT reversed_at IS NOT NULL FROM purchases WHERE id='smoke_purchase')=1 THEN 1 ELSE 0 END;
+
+-- Produto sem histórico documental pode ser removido por completo sem deixar variante órfã.
+INSERT INTO products(id,name,category,status,created_at,updated_at) VALUES('smoke_delete_product','Produto Excluir Smoke','Teste','Ativo',datetime('now'),datetime('now'));
+INSERT INTO product_variants(id,product_id,sku,stock,min_stock,average_cost,sale_price,cash_price,card_price,active,created_at,updated_at)
+VALUES('smoke_delete_variant','smoke_delete_product','SMOKE-DELETE-SKU',2,1,10,20,20,22,1,datetime('now'),datetime('now'));
+INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,note,created_at)
+VALUES('smoke_delete_move','smoke_delete_product','smoke_delete_variant','Ajuste',2,10,'Estoque inicial',datetime('now'));
+DELETE FROM inventory_movements WHERE product_id='smoke_delete_product';
+DELETE FROM product_variants WHERE product_id='smoke_delete_product';
+DELETE FROM products WHERE id='smoke_delete_product';
+INSERT INTO smoke_assertions_ci SELECT CASE WHEN (SELECT COUNT(*) FROM products WHERE id='smoke_delete_product')=0 THEN 1 ELSE 0 END;
+INSERT INTO smoke_assertions_ci SELECT CASE WHEN (SELECT COUNT(*) FROM product_variants WHERE id='smoke_delete_variant')=0 THEN 1 ELSE 0 END;
 
 -- Capital dos sócios fica separado da venda e do estoque.
 INSERT INTO owner_transactions(id,type,amount,transaction_date,notes,created_at) VALUES('smoke_owner_1','Aporte',1000,date('now'),'Aporte smoke',datetime('now'));
