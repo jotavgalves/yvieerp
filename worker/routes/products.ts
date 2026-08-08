@@ -11,6 +11,8 @@ interface VariantInput {
   minStock?: number;
   averageCost?: number;
   salePrice?: number;
+  cashPrice?: number;
+  cardPrice?: number;
   active?: boolean;
   imageKey?: string | null;
 }
@@ -33,18 +35,8 @@ export async function createProduct(request: Request, env: Env) {
   const timestamp = now();
   const variants = Array.isArray(input.variants) ? input.variants : [];
   const statements: D1PreparedStatement[] = [
-    env.DB.prepare(`
-      INSERT INTO products(id,name,category,collection,status,image_key,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?)
-    `).bind(
-      productId,
-      name,
-      String(input.category || 'Sem categoria').trim() || 'Sem categoria',
-      nullable(input.collection),
-      input.status === 'Arquivado' ? 'Arquivado' : 'Ativo',
-      nullable(input.imageKey),
-      timestamp,
-      timestamp,
+    env.DB.prepare(`INSERT INTO products(id,name,category,collection,status,image_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`).bind(
+      productId,name,String(input.category || 'Sem categoria').trim() || 'Sem categoria',nullable(input.collection),input.status === 'Arquivado' ? 'Arquivado' : 'Ativo',nullable(input.imageKey),timestamp,timestamp,
     ),
   ];
 
@@ -52,21 +44,13 @@ export async function createProduct(request: Request, env: Env) {
     const variantId = makeId('var');
     const stock = integer(variant.stock);
     const cost = Math.max(0, number(variant.averageCost));
-    statements.push(env.DB.prepare(`
-      INSERT INTO product_variants(
-        id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,active,image_key,created_at,updated_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).bind(
-      variantId, productId, nullable(variant.color), nullable(variant.size), nullable(variant.sku),
-      stock, integer(variant.minStock, 1), cost, Math.max(0, number(variant.salePrice)),
-      variant.active === false ? 0 : 1, nullable(variant.imageKey), timestamp, timestamp,
+    const sale=Math.max(0,number(variant.salePrice));
+    const cash=Math.max(0,number(variant.cashPrice,sale));
+    const card=Math.max(0,number(variant.cardPrice,cash));
+    statements.push(env.DB.prepare(`INSERT INTO product_variants(id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,cash_price,card_price,active,image_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
+      variantId,productId,nullable(variant.color),nullable(variant.size),nullable(variant.sku),stock,integer(variant.minStock, 1),cost,cash,cash,card,variant.active === false ? 0 : 1,nullable(variant.imageKey),timestamp,timestamp,
     ));
-    if (stock > 0) {
-      statements.push(env.DB.prepare(`
-        INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,note,created_at)
-        VALUES(?,?,?,?,?,?,?,?)
-      `).bind(makeId('mov'), productId, variantId, 'Ajuste', stock, cost, 'Estoque inicial', timestamp));
-    }
+    if (stock > 0) statements.push(env.DB.prepare(`INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,note,created_at) VALUES(?,?,?,?,?,?,?,?)`).bind(makeId('mov'),productId,variantId,'Ajuste',stock,cost,'Estoque inicial',timestamp));
   }
 
   await env.DB.batch(statements);
@@ -82,30 +66,11 @@ export async function updateProduct(request: Request, env: Env, productId: strin
   const old = new Map<string, any>((current.results || []).map((variant: any) => [variant.id, variant]));
   const incoming = Array.isArray(input.variants) ? input.variants : [];
   const incomingIds = new Set(incoming.map(v => v.id).filter((id): id is string => !!id));
-
-  for (const variant of old.values()) {
-    if (!incomingIds.has(variant.id) && Number(variant.stock) > 0) {
-      return fail('Uma variante com estoque não pode ser removida. Zere ou ajuste o estoque antes de desativá-la.', 409);
-    }
-  }
+  for (const variant of old.values()) if (!incomingIds.has(variant.id) && Number(variant.stock) > 0) return fail('Uma variante com estoque não pode ser removida. Zere ou ajuste o estoque antes de desativá-la.', 409);
 
   const keep = new Set<string>();
   const timestamp = now();
-  const statements: D1PreparedStatement[] = [
-    env.DB.prepare(`
-      UPDATE products
-      SET name=?,category=?,collection=?,status=?,image_key=?,updated_at=?
-      WHERE id=?
-    `).bind(
-      name,
-      String(input.category || 'Sem categoria').trim() || 'Sem categoria',
-      nullable(input.collection),
-      input.status === 'Arquivado' ? 'Arquivado' : 'Ativo',
-      nullable(input.imageKey),
-      timestamp,
-      productId,
-    ),
-  ];
+  const statements: D1PreparedStatement[] = [env.DB.prepare(`UPDATE products SET name=?,category=?,collection=?,status=?,image_key=?,updated_at=? WHERE id=?`).bind(name,String(input.category || 'Sem categoria').trim() || 'Sem categoria',nullable(input.collection),input.status === 'Arquivado' ? 'Arquivado' : 'Ativo',nullable(input.imageKey),timestamp,productId)];
 
   for (const variant of incoming) {
     if (variant.id && old.has(variant.id)) {
@@ -113,50 +78,30 @@ export async function updateProduct(request: Request, env: Env, productId: strin
       const previous = old.get(variant.id)!;
       const stock = integer(variant.stock);
       const cost = Math.max(0, number(variant.averageCost));
-      statements.push(env.DB.prepare(`
-        UPDATE product_variants
-        SET color=?,size=?,sku=?,stock=?,min_stock=?,average_cost=?,sale_price=?,active=?,image_key=?,updated_at=?
-        WHERE id=? AND product_id=?
-      `).bind(
-        nullable(variant.color), nullable(variant.size), nullable(variant.sku), stock,
-        integer(variant.minStock, 1), cost, Math.max(0, number(variant.salePrice)),
-        variant.active === false ? 0 : 1, nullable(variant.imageKey), timestamp, variant.id, productId,
+      const nextSale=Math.max(0,number(variant.salePrice,number(previous.sale_price)));
+      const priceChanged=Math.abs(nextSale-number(previous.sale_price))>0.0001;
+      const cash=variant.cashPrice!==undefined?Math.max(0,number(variant.cashPrice)):priceChanged?nextSale:Math.max(0,number(previous.cash_price,nextSale));
+      const card=variant.cardPrice!==undefined?Math.max(0,number(variant.cardPrice)):priceChanged?nextSale:Math.max(0,number(previous.card_price,cash));
+      statements.push(env.DB.prepare(`UPDATE product_variants SET color=?,size=?,sku=?,stock=?,min_stock=?,average_cost=?,sale_price=?,cash_price=?,card_price=?,active=?,image_key=?,updated_at=? WHERE id=? AND product_id=?`).bind(
+        nullable(variant.color),nullable(variant.size),nullable(variant.sku),stock,integer(variant.minStock,1),cost,cash,cash,card,variant.active === false ? 0 : 1,nullable(variant.imageKey),timestamp,variant.id,productId,
       ));
       const delta = stock - number(previous.stock);
-      if (delta !== 0) {
-        statements.push(env.DB.prepare(`
-          INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,note,created_at)
-          VALUES(?,?,?,?,?,?,?,?)
-        `).bind(makeId('mov'), productId, variant.id, 'Ajuste', delta, cost, 'Edição do produto', timestamp));
-      }
+      if (delta !== 0) statements.push(env.DB.prepare(`INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,note,created_at) VALUES(?,?,?,?,?,?,?,?)`).bind(makeId('mov'),productId,variant.id,'Ajuste',delta,cost,'Edição do produto',timestamp));
     } else {
       const variantId = makeId('var');
       const stock = integer(variant.stock);
       const cost = Math.max(0, number(variant.averageCost));
-      statements.push(env.DB.prepare(`
-        INSERT INTO product_variants(
-          id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,active,image_key,created_at,updated_at
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-      `).bind(
-        variantId, productId, nullable(variant.color), nullable(variant.size), nullable(variant.sku), stock,
-        integer(variant.minStock, 1), cost, Math.max(0, number(variant.salePrice)),
-        variant.active === false ? 0 : 1, nullable(variant.imageKey), timestamp, timestamp,
+      const sale=Math.max(0,number(variant.salePrice));
+      const cash=Math.max(0,number(variant.cashPrice,sale));
+      const card=Math.max(0,number(variant.cardPrice,cash));
+      statements.push(env.DB.prepare(`INSERT INTO product_variants(id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,cash_price,card_price,active,image_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
+        variantId,productId,nullable(variant.color),nullable(variant.size),nullable(variant.sku),stock,integer(variant.minStock,1),cost,cash,cash,card,variant.active === false ? 0 : 1,nullable(variant.imageKey),timestamp,timestamp,
       ));
-      if (stock > 0) {
-        statements.push(env.DB.prepare(`
-          INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,note,created_at)
-          VALUES(?,?,?,?,?,?,?,?)
-        `).bind(makeId('mov'), productId, variantId, 'Ajuste', stock, cost, 'Nova variante', timestamp));
-      }
+      if (stock > 0) statements.push(env.DB.prepare(`INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,note,created_at) VALUES(?,?,?,?,?,?,?,?)`).bind(makeId('mov'),productId,variantId,'Ajuste',stock,cost,'Nova variante',timestamp));
     }
   }
 
-  for (const variant of old.values()) {
-    if (!keep.has(variant.id)) {
-      statements.push(env.DB.prepare(`UPDATE product_variants SET active=0,updated_at=? WHERE id=?`).bind(timestamp, variant.id));
-    }
-  }
-
+  for (const variant of old.values()) if (!keep.has(variant.id)) statements.push(env.DB.prepare(`UPDATE product_variants SET active=0,updated_at=? WHERE id=?`).bind(timestamp, variant.id));
   await env.DB.batch(statements);
   return json({ ok: true });
 }
@@ -167,24 +112,8 @@ export async function duplicateProduct(env: Env, productId: string) {
   const variants = await env.DB.prepare(`SELECT * FROM product_variants WHERE product_id=? AND active=1`).bind(productId).all<any>();
   const newProductId = makeId('prd');
   const timestamp = now();
-  const statements: D1PreparedStatement[] = [
-    env.DB.prepare(`
-      INSERT INTO products(id,name,category,collection,status,image_key,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?)
-    `).bind(newProductId, `${product.name} — cópia`, product.category, product.collection, 'Ativo', product.image_key, timestamp, timestamp),
-  ];
-
-  for (const variant of variants.results || []) {
-    statements.push(env.DB.prepare(`
-      INSERT INTO product_variants(
-        id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,active,image_key,created_at,updated_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).bind(
-      makeId('var'), newProductId, variant.color, variant.size, null, 0, variant.min_stock,
-      variant.average_cost, variant.sale_price, 1, variant.image_key, timestamp, timestamp,
-    ));
-  }
-
+  const statements: D1PreparedStatement[] = [env.DB.prepare(`INSERT INTO products(id,name,category,collection,status,image_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`).bind(newProductId,`${product.name} — cópia`,product.category,product.collection,'Ativo',product.image_key,timestamp,timestamp)];
+  for (const variant of variants.results || []) statements.push(env.DB.prepare(`INSERT INTO product_variants(id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,cash_price,card_price,active,image_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(makeId('var'),newProductId,variant.color,variant.size,null,0,variant.min_stock,variant.average_cost,variant.cash_price||variant.sale_price,variant.cash_price||variant.sale_price,variant.card_price||variant.cash_price||variant.sale_price,1,variant.image_key,timestamp,timestamp));
   await env.DB.batch(statements);
   return json({ id: newProductId }, 201);
 }
