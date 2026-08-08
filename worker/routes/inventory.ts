@@ -3,71 +3,43 @@ import { fail, json, readJson } from '../http';
 import type { Env } from '../types';
 
 interface AdjustmentPayload { quantity?: number; reason?: string; note?: string; }
-interface EntryItemPayload {
-  variantId?: string; color?: string; size?: string; quantity?: number; unitCost?: number;
-  salePrice?: number; cashPrice?: number; cardPrice?: number; sku?: string; minStock?: number;
-}
-interface EntryPayload { productId?: string; description?: string; entryDate?: string; items?: EntryItemPayload[]; }
+interface EntryItemPayload {variantId?:string;color?:string;size?:string;quantity?:number;unitCost?:number;salePrice?:number;cashPrice?:number;cardPrice?:number;sku?:string;minStock?:number;}
+interface EntryPayload {productId?:string;description?:string;entryDate?:string;items?:EntryItemPayload[];}
 
-export async function adjustStock(request: Request, env: Env, variantId: string) {
-  const input = await readJson<AdjustmentPayload>(request);
-  const variant = await env.DB.prepare(`SELECT * FROM product_variants WHERE id=?`).bind(variantId).first<any>();
-  if (!variant) return fail('Variante não encontrada.', 404);
-  const next = integer(input.quantity);const delta = next - number(variant.stock);
-  if (delta === 0) return json({ ok: true });
-  const timestamp = now();const note = [String(input.reason || 'Ajuste'), String(input.note || '').trim()].filter(Boolean).join(' · ');
-  await env.DB.batch([
-    env.DB.prepare(`UPDATE product_variants SET stock=?,updated_at=? WHERE id=?`).bind(next, timestamp, variantId),
-    env.DB.prepare(`INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,note,created_at) VALUES(?,?,?,?,?,?,?,?)`).bind(makeId('mov'), variant.product_id, variantId, 'Ajuste', delta, variant.average_cost, note, timestamp),
-  ]);
-  return json({ ok: true });
+export async function adjustStock(request:Request,env:Env,variantId:string){
+  const input=await readJson<AdjustmentPayload>(request);const variant=await env.DB.prepare(`SELECT * FROM product_variants WHERE id=?`).bind(variantId).first<any>();if(!variant)return fail('Variante não encontrada.',404);
+  const next=integer(input.quantity);const delta=next-number(variant.stock);if(delta===0)return json({ok:true});const timestamp=now();const note=[String(input.reason||'Ajuste'),String(input.note||'').trim()].filter(Boolean).join(' · ');
+  await env.DB.batch([env.DB.prepare(`UPDATE product_variants SET stock=?,updated_at=? WHERE id=?`).bind(next,timestamp,variantId),env.DB.prepare(`INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,note,created_at) VALUES(?,?,?,?,?,?,?,?)`).bind(makeId('mov'),variant.product_id,variantId,'Ajuste',delta,variant.average_cost,note,timestamp)]);return json({ok:true});
 }
 
-export async function createStockEntry(request: Request, env: Env) {
-  const input = await readJson<EntryPayload>(request);const productId = String(input.productId || '');
-  const items = (Array.isArray(input.items) ? input.items : []).filter(item => integer(item.quantity) > 0);
-  if (!productId || !items.length) return fail('Produto e ao menos uma quantidade são obrigatórios.');
-  const product = await env.DB.prepare(`SELECT id,status FROM products WHERE id=?`).bind(productId).first<{ id: string; status: string }>();
-  if (!product) return fail('Produto não encontrado.', 404);if (product.status === 'Arquivado') return fail('Não é possível registrar entrada em um produto arquivado.', 409);
-  const variantRows = await env.DB.prepare(`SELECT id FROM product_variants WHERE product_id=? AND active=1`).bind(productId).all<{ id: string }>();
-  const allowedVariantIds = new Set((variantRows.results || []).map(variant => variant.id));
-  for (const item of items) if (item.variantId && !allowedVariantIds.has(String(item.variantId))) return fail('Uma variante não pertence ao produto selecionado ou está inativa.', 409);
-
-  const entryId = makeId('ent');const timestamp = now();
-  const totalUnits = items.reduce((sum, item) => sum + integer(item.quantity), 0);
-  const totalCost = items.reduce((sum, item) => sum + integer(item.quantity) * Math.max(0, number(item.unitCost)), 0);
-  const entryDate = String(input.entryDate || new Date().toISOString().slice(0, 10));
-  const description = String(input.description || 'Entrada de estoque').trim() || 'Entrada de estoque';
-  const statements: D1PreparedStatement[] = [env.DB.prepare(`INSERT INTO stock_entries(id,product_id,description,entry_date,total_units,total_cost,created_at) VALUES(?,?,?,?,?,?,?)`).bind(entryId, productId, description, entryDate, totalUnits, totalCost, timestamp)];
-
-  for (const item of items) {
-    let variantId = String(item.variantId || '');const quantity = integer(item.quantity);const unitCost = Math.max(0, number(item.unitCost));
-    const cashPrice=Math.max(0,number(item.cashPrice,number(item.salePrice)));const cardPrice=Math.max(0,number(item.cardPrice,cashPrice));
-    if (variantId) {
-      statements.push(env.DB.prepare(`UPDATE product_variants SET average_cost=CASE WHEN stock+?>0 THEN ((stock*average_cost)+(?*?))/(stock+?) ELSE ? END,stock=stock+?,sale_price=?,cash_price=?,card_price=?,sku=COALESCE(?,sku),min_stock=?,updated_at=? WHERE id=? AND product_id=? AND active=1`).bind(quantity,quantity,unitCost,quantity,unitCost,quantity,cashPrice,cashPrice,cardPrice,nullable(item.sku),integer(item.minStock,1),timestamp,variantId,productId));
-    } else {
-      variantId = makeId('var');
-      statements.push(env.DB.prepare(`INSERT INTO product_variants(id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,cash_price,card_price,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?)`).bind(variantId,productId,nullable(item.color),nullable(item.size),nullable(item.sku),quantity,integer(item.minStock,1),unitCost,cashPrice,cashPrice,cardPrice,timestamp,timestamp));
-    }
-    statements.push(env.DB.prepare(`INSERT INTO stock_entry_items(id,entry_id,variant_id,quantity,unit_cost,sale_price) VALUES(?,?,?,?,?,?)`).bind(makeId('eni'), entryId, variantId, quantity, unitCost, cashPrice));
-    statements.push(env.DB.prepare(`INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,reference_type,reference_id,note,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`).bind(makeId('mov'), productId, variantId, 'Entrada', quantity, unitCost, 'stock_entry', entryId, description, timestamp));
+export async function createStockEntry(request:Request,env:Env){
+  const input=await readJson<EntryPayload>(request);const productId=String(input.productId||'');const items=(Array.isArray(input.items)?input.items:[]).filter(item=>integer(item.quantity)>0);if(!productId||!items.length)return fail('Produto e ao menos uma quantidade são obrigatórios.');
+  const product=await env.DB.prepare(`SELECT id,status FROM products WHERE id=?`).bind(productId).first<{id:string;status:string}>();if(!product)return fail('Produto não encontrado.',404);if(product.status==='Arquivado')return fail('Não é possível registrar entrada em um produto arquivado.',409);
+  const variantRows=await env.DB.prepare(`SELECT id FROM product_variants WHERE product_id=? AND active=1`).bind(productId).all<{id:string}>();const allowedVariantIds=new Set((variantRows.results||[]).map(variant=>variant.id));for(const item of items)if(item.variantId&&!allowedVariantIds.has(String(item.variantId)))return fail('Uma variante não pertence ao produto selecionado ou está inativa.',409);
+  const entryId=makeId('ent');const timestamp=now();const totalUnits=items.reduce((sum,item)=>sum+integer(item.quantity),0);const totalCost=items.reduce((sum,item)=>sum+integer(item.quantity)*Math.max(0,number(item.unitCost)),0);const entryDate=String(input.entryDate||new Date().toISOString().slice(0,10));const description=String(input.description||'Entrada de estoque').trim()||'Entrada de estoque';const statements:D1PreparedStatement[]=[env.DB.prepare(`INSERT INTO stock_entries(id,product_id,description,entry_date,total_units,total_cost,created_at) VALUES(?,?,?,?,?,?,?)`).bind(entryId,productId,description,entryDate,totalUnits,totalCost,timestamp)];
+  for(const item of items){
+    let variantId=String(item.variantId||'');const quantity=integer(item.quantity);const unitCost=Math.max(0,number(item.unitCost));const cashPrice=Math.max(0,number(item.cashPrice,number(item.salePrice)));const cardPrice=Math.max(0,number(item.cardPrice,cashPrice));
+    if(variantId)statements.push(env.DB.prepare(`UPDATE product_variants SET average_cost=CASE WHEN stock+?>0 THEN ((stock*average_cost)+(?*?))/(stock+?) ELSE ? END,stock=stock+?,sale_price=?,cash_price=?,card_price=?,sku=COALESCE(?,sku),min_stock=?,updated_at=? WHERE id=? AND product_id=? AND active=1`).bind(quantity,quantity,unitCost,quantity,unitCost,quantity,cashPrice,cashPrice,cardPrice,nullable(item.sku),integer(item.minStock,1),timestamp,variantId,productId));
+    else{variantId=makeId('var');statements.push(env.DB.prepare(`INSERT INTO product_variants(id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,cash_price,card_price,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?)`).bind(variantId,productId,nullable(item.color),nullable(item.size),nullable(item.sku),quantity,integer(item.minStock,1),unitCost,cashPrice,cashPrice,cardPrice,timestamp,timestamp));}
+    statements.push(env.DB.prepare(`INSERT INTO stock_entry_items(id,entry_id,variant_id,quantity,unit_cost,sale_price) VALUES(?,?,?,?,?,?)`).bind(makeId('eni'),entryId,variantId,quantity,unitCost,cashPrice));
+    statements.push(env.DB.prepare(`INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,reference_type,reference_id,note,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`).bind(makeId('mov'),productId,variantId,'Entrada',quantity,unitCost,'stock_entry',entryId,description,timestamp));
   }
-  await env.DB.batch(statements);return json({ id: entryId }, 201);
+  await env.DB.batch(statements);return json({id:entryId},201);
 }
 
 export async function deleteStockEntry(env:Env,entryId:string){
-  const entry=await env.DB.prepare(`SELECT * FROM stock_entries WHERE id=? AND deleted_at IS NULL`).bind(entryId).first<any>();
-  if(!entry)return fail('Entrada não encontrada.',404);
-  const rows=await env.DB.prepare(`SELECT sei.variant_id,SUM(sei.quantity) quantity,SUM(sei.quantity*sei.unit_cost) cost_value,v.product_id,v.stock,v.average_cost FROM stock_entry_items sei JOIN product_variants v ON v.id=sei.variant_id WHERE sei.entry_id=? GROUP BY sei.variant_id,v.product_id,v.stock,v.average_cost`).bind(entryId).all<any>();
+  const entry=await env.DB.prepare(`SELECT * FROM stock_entries WHERE id=? AND deleted_at IS NULL`).bind(entryId).first<any>();if(!entry)return fail('Entrada não encontrada.',404);
+  const purchaseOrigin=await env.DB.prepare(`SELECT m.reference_id FROM inventory_movements m WHERE m.reference_type='purchase' AND m.created_at=? AND m.variant_id IN (SELECT variant_id FROM stock_entry_items WHERE entry_id=?) LIMIT 1`).bind(entry.created_at,entryId).first<any>();
+  if(purchaseOrigin?.reference_id)return fail('Esta entrada foi criada pelo recebimento de uma compra. Para manter compra e estoque sincronizados, use Estornar recebimento no módulo Compras.',409);
+  const rows=await env.DB.prepare(`SELECT sei.variant_id,SUM(sei.quantity) quantity,SUM(sei.quantity*sei.unit_cost) cost_value,v.product_id,v.stock,v.average_cost,p.name AS product_name FROM stock_entry_items sei JOIN product_variants v ON v.id=sei.variant_id JOIN products p ON p.id=v.product_id WHERE sei.entry_id=? GROUP BY sei.variant_id,v.product_id,v.stock,v.average_cost,p.name`).bind(entryId).all<any>();
   const timestamp=now();const statements:D1PreparedStatement[]=[];
   for(const row of rows.results||[]){
+    const later=await env.DB.prepare(`SELECT COUNT(*) n FROM inventory_movements WHERE variant_id=? AND created_at>? AND NOT(reference_type='stock_entry' AND reference_id=?)`).bind(row.variant_id,entry.created_at,entryId).first<any>();
+    if(Number(later?.n||0)>0)return fail(`Não é seguro excluir esta entrada: ${row.product_name} teve venda, ajuste, devolução, inventário ou outra entrada depois dela. Desfaça primeiro a operação posterior ou use um ajuste de estoque.`,409);
     const qty=Number(row.quantity||0),stock=Number(row.stock||0);if(stock<qty)return fail('Esta entrada não pode ser excluída porque parte das unidades já não está disponível no estoque. Use um ajuste manual para corrigir somente a quantidade necessária.',409);
-    const remainingQty=stock-qty;const remainingValue=stock*Number(row.average_cost||0)-Number(row.cost_value||0);
-    if(remainingQty>0&&remainingValue<-0.01)return fail('Não foi possível reverter o custo médio desta entrada com segurança. Faça um ajuste manual.',409);
-    const nextAverage=remainingQty>0?Math.max(0,remainingValue/remainingQty):0;
+    const remainingQty=stock-qty;const remainingValue=stock*Number(row.average_cost||0)-Number(row.cost_value||0);if(remainingQty>0&&remainingValue<-0.01)return fail('Não foi possível reverter o custo médio desta entrada com segurança. Faça um ajuste manual.',409);const nextAverage=remainingQty>0?Math.max(0,remainingValue/remainingQty):0;
     statements.push(env.DB.prepare(`UPDATE product_variants SET stock=?,average_cost=?,updated_at=? WHERE id=?`).bind(remainingQty,nextAverage,timestamp,row.variant_id));
     statements.push(env.DB.prepare(`INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,reference_type,reference_id,note,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`).bind(makeId('mov'),row.product_id,row.variant_id,'Ajuste',-qty,row.average_cost,'entry_delete',entryId,`Exclusão da entrada · ${entry.description}`,timestamp));
   }
-  statements.push(env.DB.prepare(`UPDATE stock_entries SET deleted_at=?,deleted_reason=? WHERE id=?`).bind(timestamp,'Excluída pelo usuário',entryId));
-  await env.DB.batch(statements);return new Response(null,{status:204});
+  statements.push(env.DB.prepare(`UPDATE stock_entries SET deleted_at=?,deleted_reason=? WHERE id=?`).bind(timestamp,'Excluída pelo usuário',entryId));await env.DB.batch(statements);return new Response(null,{status:204});
 }
