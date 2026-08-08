@@ -14,9 +14,11 @@ import { Login } from './pages/Login';
 import { Orders } from './pages/Orders';
 import { Pricing } from './pages/Pricing';
 import { Products } from './pages/Products';
+import { Purchases } from './pages/Purchases';
 import { Reports } from './pages/Reports';
 import { SaleModal, Sales } from './pages/Sales';
 import { Settings } from './pages/Settings';
+import { Suppliers } from './pages/Suppliers';
 
 function AppBody(){
   const {data,loading,error,refresh}=useData();
@@ -36,6 +38,8 @@ function AppBody(){
     inventory:<Inventory onNewEntry={()=>openEntry()}/>,
     entries:<Entries openSignal={entryRequest.signal} initialProductId={entryRequest.productId}/>,
     pricing:<Pricing openSignal={pricingRequest.signal} initialProductId={pricingRequest.productId}/>,
+    purchases:<Purchases/>,
+    suppliers:<Suppliers/>,
     finance:<Finance/>,
     reports:<Reports/>,
     settings:<Settings/>
