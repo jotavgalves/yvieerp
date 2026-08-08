@@ -1,0 +1,9 @@
+import { useMemo, useState } from 'react';
+import { Input } from './ui';
+
+export type PeriodRange={from:string;to:string;label:string};
+const iso=(d:Date)=>d.toISOString().slice(0,10);
+function preset(key:string):PeriodRange{const now=new Date();const today=iso(now);if(key==='today')return{from:today,to:today,label:'Hoje'};if(key==='7d'){const d=new Date(now);d.setDate(d.getDate()-6);return{from:iso(d),to:today,label:'7 dias'};}if(key==='prev'){const first=new Date(now.getFullYear(),now.getMonth()-1,1),last=new Date(now.getFullYear(),now.getMonth(),0);return{from:iso(first),to:iso(last),label:'Mês anterior'};}const first=new Date(now.getFullYear(),now.getMonth(),1);return{from:iso(first),to:today,label:'Este mês'};}
+export function PeriodFilter({value,onChange}:{value:PeriodRange;onChange:(v:PeriodRange)=>void}){const [custom,setCustom]=useState(false);const buttons=useMemo(()=>[['today','Hoje'],['7d','7 dias'],['month','Este mês'],['prev','Mês anterior']] as const,[]);return <div className="period-filter"><div className="period-presets">{buttons.map(([k,label])=><button key={k} className={!custom&&value.label===label?'active':''} onClick={()=>{setCustom(false);onChange(preset(k))}}>{label}</button>)}<button className={custom?'active':''} onClick={()=>setCustom(true)}>Personalizar</button></div>{custom&&<div className="period-custom"><Input type="date" value={value.from} onChange={e=>onChange({...value,from:e.target.value,label:'Personalizado'})}/><span>até</span><Input type="date" value={value.to} onChange={e=>onChange({...value,to:e.target.value,label:'Personalizado'})}/></div>}</div>}
+export function currentMonthRange(){return preset('month')}
+export function inRange(date:string,range:PeriodRange){const d=date.slice(0,10);return(!range.from||d>=range.from)&&(!range.to||d<=range.to)}
