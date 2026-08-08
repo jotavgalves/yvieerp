@@ -4,15 +4,17 @@ import { fail, json, readJson, sameOrigin } from './http';
 import { createCustomer, deleteCustomer, updateCustomer } from './routes/customers';
 import { createExpense, deleteExpense } from './routes/expenses';
 import { adjustStock, createStockEntry } from './routes/inventory';
+import { deleteMedia, getMedia, uploadMedia } from './routes/media';
 import { savePricing } from './routes/pricing';
 import { archiveProduct, createProduct, duplicateProduct, updateProduct } from './routes/products';
+import { cancelPurchase, createPurchase, receivePurchase } from './routes/purchases';
 import { cancelSale, createSale, updateOrderStatus } from './routes/sales';
+import { archiveSupplier, createSupplier, updateSupplier } from './routes/suppliers';
 import type { Env } from './types';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url=new URL(request.url);
-    if(!url.pathname.startsWith('/api/'))return new Response(null,{status:404});
 
     try{
       if(url.pathname==='/api/auth/session'&&request.method==='GET')return json({authenticated:await verifySession(request,env)});
@@ -28,15 +30,37 @@ export default {
         return json({ok:true},200,{'Set-Cookie':clearSessionCookie(request)});
       }
 
+      if(url.pathname.startsWith('/media/')){
+        if(!(await verifySession(request,env)))return fail('Sessão expirada. Entre novamente.',401);
+        if(request.method!=='GET')return fail('Método não permitido.',405);
+        return getMedia(env,decodeURIComponent(url.pathname.slice('/media/'.length)));
+      }
+      if(!url.pathname.startsWith('/api/'))return new Response(null,{status:404});
+
       if(!(await verifySession(request,env)))return fail('Sessão expirada. Entre novamente.',401);
       if(['POST','PUT','PATCH','DELETE'].includes(request.method)&&!sameOrigin(request))return fail('Origem da requisição não autorizada.',403);
 
       if(url.pathname==='/api/bootstrap'&&request.method==='GET')return json(await bootstrap(env));
+      if(url.pathname==='/api/media'&&request.method==='POST')return uploadMedia(request,env);
+      const media=url.pathname.match(/^\/api\/media\/([^/]+)$/);
+      if(media&&request.method==='DELETE')return deleteMedia(env,media[1]);
 
       if(url.pathname==='/api/customers'&&request.method==='POST')return createCustomer(request,env);
       const customer=url.pathname.match(/^\/api\/customers\/([^/]+)$/);
       if(customer&&request.method==='PUT')return updateCustomer(request,env,customer[1]);
       if(customer&&request.method==='DELETE')return deleteCustomer(env,customer[1]);
+
+      if(url.pathname==='/api/suppliers'&&request.method==='POST')return createSupplier(request,env);
+      const supplier=url.pathname.match(/^\/api\/suppliers\/([^/]+)$/);
+      if(supplier&&request.method==='PUT')return updateSupplier(request,env,supplier[1]);
+      const supplierArchive=url.pathname.match(/^\/api\/suppliers\/([^/]+)\/archive$/);
+      if(supplierArchive&&request.method==='POST')return archiveSupplier(env,supplierArchive[1]);
+
+      if(url.pathname==='/api/purchases'&&request.method==='POST')return createPurchase(request,env);
+      const purchaseReceive=url.pathname.match(/^\/api\/purchases\/([^/]+)\/receive$/);
+      if(purchaseReceive&&request.method==='POST')return receivePurchase(env,purchaseReceive[1]);
+      const purchaseCancel=url.pathname.match(/^\/api\/purchases\/([^/]+)\/cancel$/);
+      if(purchaseCancel&&request.method==='POST')return cancelPurchase(env,purchaseCancel[1]);
 
       if(url.pathname==='/api/products'&&request.method==='POST')return createProduct(request,env);
       const product=url.pathname.match(/^\/api\/products\/([^/]+)$/);
@@ -68,7 +92,7 @@ export default {
       console.error(error);
       const message=error instanceof Error?error.message:'';
       if(message==='JSON_INVALID')return fail('Corpo da requisição inválido.',400);
-      if(message.includes('CHECK constraint failed'))return fail('A operação deixaria o estoque em um estado inválido. Atualize os dados e tente novamente.',409);
+      if(message.includes('CHECK constraint failed'))return fail('A operação deixaria os dados em um estado inválido. Atualize as informações e tente novamente.',409);
       if(message.includes('UNIQUE constraint failed'))return fail('Já existe um registro com este SKU ou identificador.',409);
       return fail('Não foi possível concluir a operação.',500);
     }

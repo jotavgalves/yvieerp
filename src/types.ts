@@ -1,5 +1,6 @@
 export type OrderStatus = 'Separando' | 'Pronto' | 'Entregue' | 'Cancelado';
 export type PaymentStatus = 'Pago' | 'Pendente';
+export type PurchaseStatus = 'Pedido' | 'Recebido' | 'Cancelado';
 
 export interface Customer {
   id: string;
@@ -24,6 +25,8 @@ export interface Variant {
   averageCost: number;
   salePrice: number;
   active: boolean;
+  imageKey: string | null;
+  imageUrl: string | null;
 }
 
 export interface Product {
@@ -32,6 +35,8 @@ export interface Product {
   category: string;
   collection: string | null;
   status: 'Ativo' | 'Arquivado';
+  imageKey: string | null;
+  imageUrl: string | null;
   variants: Variant[];
   createdAt: string;
   updatedAt: string;
@@ -108,6 +113,51 @@ export interface PricingRecord {
   createdAt: string;
 }
 
+export interface Supplier {
+  id: string;
+  name: string;
+  phone: string | null;
+  instagram: string | null;
+  email: string | null;
+  cnpj: string | null;
+  notes: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PurchaseItem {
+  id: string;
+  purchaseId: string;
+  productId: string;
+  variantId: string;
+  productName: string;
+  color: string | null;
+  size: string | null;
+  sku: string | null;
+  quantity: number;
+  unitCost: number;
+}
+
+export interface Purchase {
+  id: string;
+  number: string;
+  supplierId: string;
+  supplierName: string;
+  purchaseDate: string;
+  status: PurchaseStatus;
+  itemsSubtotal: number;
+  freightCost: number;
+  otherCost: number;
+  totalCost: number;
+  totalUnits: number;
+  notes: string | null;
+  receivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items: PurchaseItem[];
+}
+
 export interface Summary {
   revenue: number;
   grossProfit: number;
@@ -117,6 +167,9 @@ export interface Summary {
   ticketAverage: number;
   stockUnits: number;
   stockCost: number;
+  stockPotentialRevenue: number;
+  stockPotentialProfit: number;
+  pendingPurchases: number;
 }
 
 export interface BootstrapData {
@@ -126,5 +179,7 @@ export interface BootstrapData {
   entries: StockEntry[];
   expenses: Expense[];
   pricing: PricingRecord[];
+  suppliers: Supplier[];
+  purchases: Purchase[];
   summary: Summary;
 }

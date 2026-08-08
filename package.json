@@ -16,7 +16,8 @@
   "dependencies": {
     "lucide-react": "1.27.0",
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "xlsx": "0.18.5"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.48.0",
