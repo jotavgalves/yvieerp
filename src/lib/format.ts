@@ -13,7 +13,8 @@ export function phoneDisplay(value: string) {
   return value;
 }
 
-export function whatsAppUrl(value: string) {
+export function whatsAppUrl(value: string, text = '') {
   const digits = value.replace(/\D/g, '');
-  return `https://wa.me/${digits.startsWith('55') ? digits : `55${digits}`}`;
+  const base=`https://wa.me/${digits.startsWith('55') ? digits : `55${digits}`}`;
+  return text?`${base}?text=${encodeURIComponent(text)}`:base;
 }

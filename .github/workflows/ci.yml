@@ -25,5 +25,11 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Validate D1 migrations
+        run: npm run db:migrate:local
+
+      - name: D1 operational integrity smoke test
+        run: npx wrangler d1 execute DB --local --file=./scripts/integrity-smoke.sql
+
       - name: Build
         run: npm run build
