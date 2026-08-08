@@ -29,3 +29,31 @@ WHEN (SELECT COALESCE(SUM(amount),0) FROM customer_credit_movements WHERE custom
 BEGIN
   SELECT RAISE(ABORT,'NEGATIVE_CUSTOMER_CREDIT');
 END;
+
+CREATE TRIGGER IF NOT EXISTS trg_purchase_receive_once
+BEFORE UPDATE OF status ON purchases
+WHEN OLD.status='Recebido' AND NEW.status='Recebido'
+BEGIN
+  SELECT RAISE(ABORT,'PURCHASE_ALREADY_RECEIVED');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_purchase_reverse_once
+BEFORE UPDATE OF reversed_at ON purchases
+WHEN OLD.reversed_at IS NOT NULL AND NEW.reversed_at IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT,'PURCHASE_ALREADY_REVERSED');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_stock_entry_delete_once
+BEFORE UPDATE OF deleted_at ON stock_entries
+WHEN OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT,'ENTRY_ALREADY_DELETED');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_inventory_count_apply_once
+BEFORE UPDATE OF status ON inventory_counts
+WHEN OLD.status='Aplicado' AND NEW.status='Aplicado'
+BEGIN
+  SELECT RAISE(ABORT,'INVENTORY_COUNT_ALREADY_APPLIED');
+END;
