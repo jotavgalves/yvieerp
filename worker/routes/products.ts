@@ -119,7 +119,39 @@ export async function duplicateProduct(env: Env, productId: string) {
 }
 
 export async function archiveProduct(env: Env, productId: string) {
+  const stock=await env.DB.prepare(`SELECT COALESCE(SUM(stock),0) total FROM product_variants WHERE product_id=?`).bind(productId).first<any>();
+  if(Number(stock?.total||0)>0)return fail('Zere ou ajuste o estoque antes de arquivar este produto.',409);
   const result = await env.DB.prepare(`UPDATE products SET status='Arquivado',updated_at=? WHERE id=?`).bind(now(), productId).run();
   if (!result.meta.changes) return fail('Produto não encontrado.', 404);
   return json({ ok: true });
+}
+
+export async function deleteProduct(env:Env,productId:string){
+  const product=await env.DB.prepare(`SELECT * FROM products WHERE id=?`).bind(productId).first<any>();
+  if(!product)return fail('Produto não encontrado.',404);
+  const variants=await env.DB.prepare(`SELECT id,stock,image_key FROM product_variants WHERE product_id=?`).bind(productId).all<any>();
+  const stock=(variants.results||[]).reduce((sum:any,v:any)=>sum+Number(v.stock||0),0);
+  const refs=await env.DB.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM sale_items WHERE product_id=?) +
+      (SELECT COUNT(*) FROM stock_entries WHERE product_id=?) +
+      (SELECT COUNT(*) FROM purchase_items WHERE product_id=?) +
+      (SELECT COUNT(*) FROM pricing_history WHERE product_id=?) +
+      (SELECT COUNT(*) FROM return_items WHERE product_id=?) +
+      (SELECT COUNT(*) FROM inventory_count_items WHERE product_id=?) AS total
+  `).bind(productId,productId,productId,productId,productId,productId).first<any>();
+  const hasHistory=Number(refs?.total||0)>0;
+  if(hasHistory){
+    if(stock>0)return fail('Este produto já possui histórico e ainda tem estoque. Ajuste o estoque para zero; depois ele poderá ser retirado da operação sem apagar o histórico.',409);
+    await env.DB.prepare(`UPDATE products SET status='Arquivado',updated_at=? WHERE id=?`).bind(now(),productId).run();
+    return json({ok:true,mode:'archived'});
+  }
+  const keys=new Set<string>();if(product.image_key)keys.add(String(product.image_key));for(const v of variants.results||[])if(v.image_key)keys.add(String(v.image_key));
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM inventory_movements WHERE product_id=?`).bind(productId),
+    env.DB.prepare(`DELETE FROM product_variants WHERE product_id=?`).bind(productId),
+    env.DB.prepare(`DELETE FROM products WHERE id=?`).bind(productId),
+  ]);
+  await Promise.all([...keys].map(key=>env.MEDIA.delete(key).catch(()=>undefined)));
+  return json({ok:true,mode:'deleted'});
 }
