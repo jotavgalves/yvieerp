@@ -4,6 +4,7 @@ import { fail, json, readJson, sameOrigin } from './http';
 import { adjustCustomerCredit } from './routes/customerCredits';
 import { createCustomer, deleteCustomer, updateCustomer } from './routes/customers';
 import { createExpense, deleteExpense, markExpensePaid, updateExpense } from './routes/expenses';
+import { checkIntegrity } from './routes/integrity';
 import { adjustStock, createStockEntry, deleteStockEntry } from './routes/inventory';
 import { applyInventoryCount, cancelInventoryCount, createInventoryCount } from './routes/inventoryCounts';
 import { deleteMedia, getMedia, uploadMedia } from './routes/media';
@@ -43,6 +44,7 @@ export default {
       if(['POST','PUT','PATCH','DELETE'].includes(request.method)&&!sameOrigin(request))return fail('Origem da requisição não autorizada.',403);
 
       if(url.pathname==='/api/bootstrap'&&request.method==='GET')return json(await bootstrap(env));
+      if(url.pathname==='/api/integrity'&&request.method==='GET')return checkIntegrity(env);
       if(url.pathname==='/api/media'&&request.method==='POST')return uploadMedia(request,env);
       const media=url.pathname.match(/^\/api\/media\/([^/]+)$/);if(media&&request.method==='DELETE')return deleteMedia(env,media[1]);
 
