@@ -1,31 +1,39 @@
-import { AlertTriangle, Boxes, CircleDollarSign, PackageCheck, Receipt, ShoppingBag, TrendingUp, Wallet } from 'lucide-react';
+import { AlertTriangle, Clock3, PackageCheck, Repeat2, ShoppingBag, ShoppingCart } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { PeriodFilter, currentMonthRange, inRange } from '../components/PeriodFilter';
 import { useData } from '../context/DataContext';
-import { money, dateTime } from '../lib/format';
+import { money, dateTime, shortDate } from '../lib/format';
 import { Badge, EmptyState, PageHeader, StatCard } from '../components/ui';
 
 export function Dashboard(){
   const {data}=useData();const [range,setRange]=useState(currentMonthRange());
-  const period=useMemo(()=>{if(!data)return null;const sales=data.sales.filter(s=>s.orderStatus!=='Cancelado'&&inRange(s.createdAt,range));const returns=data.returns.filter(r=>inRange(r.createdAt,range));const revenue=sales.reduce((a,s)=>a+s.total,0)-returns.reduce((a,r)=>a+r.refundAmount+r.creditAmount,0);const saleCost=sales.reduce((a,s)=>a+s.costTotal,0);const returnedCost=returns.flatMap(r=>r.items).filter(i=>i.direction==='Entrada').reduce((a,i)=>a+i.quantity*i.unitCost,0);const exchangeCost=returns.flatMap(r=>r.items).filter(i=>i.direction==='Saída').reduce((a,i)=>a+i.quantity*i.unitCost,0);const cost=saleCost-returnedCost+exchangeCost;const expenses=data.expenses.filter(e=>e.status==='Pago'&&inRange(e.expenseDate,range)).reduce((a,e)=>a+e.amount,0);return{sales,revenue,grossProfit:revenue-cost,expenses,netProfit:revenue-cost-expenses,ticket:sales.length?revenue/sales.length:0}},[data,range]);
+  const period=useMemo(()=>{if(!data)return null;const sales=data.sales.filter(s=>s.orderStatus!=='Cancelado'&&inRange(s.createdAt,range));const returns=data.returns.filter(r=>inRange(r.createdAt,range));return{sales,returns}},[data,range]);
   if(!data||!period)return null;
-  const low=data.products.flatMap(p=>p.variants.filter(v=>v.active&&v.stock<=v.minStock).map(v=>({p,v}))).slice(0,6);
-  const top=data.products.map(p=>({p,qty:period.sales.flatMap(x=>x.items).filter(i=>i.productId===p.id).reduce((a,i)=>a+i.quantity,0)})).sort((a,b)=>b.qty-a.qty).slice(0,5);
+  const activeOrders=data.sales.filter(s=>s.orderStatus==='Separando'||s.orderStatus==='Pronto');
+  const low=data.products.flatMap(p=>p.variants.filter(v=>v.active&&v.stock<=v.minStock).map(v=>({p,v})));
+  const pendingPurchases=data.purchases.filter(p=>p.status==='Pedido');
+  const today=new Date().toISOString().slice(0,10);
+  const overdue=data.receivables.filter(r=>r.status==='Pendente'&&!!r.dueDate&&r.dueDate<today);
+  const top=data.products.map(p=>({p,qty:period.sales.flatMap(x=>x.items).filter(i=>i.productId===p.id).reduce((a,i)=>a+i.quantity,0)})).filter(x=>x.qty>0).sort((a,b)=>b.qty-a.qty).slice(0,5);
   return <>
-    <PageHeader title="Visão geral" subtitle="O que precisa de atenção e como a operação está performando." actions={<PeriodFilter value={range} onChange={setRange}/>}/>
+    <PageHeader title="Visão geral" subtitle="Pendências e tarefas que precisam de atenção. Os valores financeiros detalhados ficam somente no Financeiro." actions={<PeriodFilter value={range} onChange={setRange}/>}/>
     <div className="stats-grid">
-      <StatCard label="Faturamento" value={money(period.revenue)} note={range.label} icon={<TrendingUp size={17}/>}/>
-      <StatCard label="Lucro bruto" value={money(period.grossProfit)} note="Após custo das peças e trocas" icon={<CircleDollarSign size={17}/>}/>
-      <StatCard label="Despesas" value={money(period.expenses)} note="Somente despesas pagas" icon={<Receipt size={17}/>}/>
-      <StatCard label="Lucro líquido" value={money(period.netProfit)} note="Resultado do período" icon={<Wallet size={17}/>}/>
-      <StatCard label="Pedidos" value={String(period.sales.length)} note={range.label} icon={<ShoppingBag size={17}/>}/>
-      <StatCard label="Estoque" value={`${data.summary.stockUnits} un.`} note={`${money(data.summary.stockCost)} em custo agora`} icon={<Boxes size={17}/>}/>
+      <StatCard label="Pedidos em andamento" value={String(activeOrders.length)} note="Separando ou pronto" icon={<ShoppingBag size={17}/>}/>
+      <StatCard label="Vendas no período" value={String(period.sales.length)} note={range.label} icon={<ShoppingBag size={17}/>}/>
+      <StatCard label="Estoque em atenção" value={String(low.length)} note="Variantes no mínimo ou zeradas" icon={<AlertTriangle size={17}/>}/>
+      <StatCard label="Contas vencidas" value={String(overdue.length)} note="Recebimentos que precisam de cobrança" icon={<Clock3 size={17}/>}/>
+      <StatCard label="Compras pendentes" value={String(pendingPurchases.length)} note="Ainda não recebidas" icon={<ShoppingCart size={17}/>}/>
+      <StatCard label="Trocas/devoluções" value={String(period.returns.length)} note={range.label} icon={<Repeat2 size={17}/>}/>
     </div>
+
     <div className="dashboard-grid">
-      <section className="panel panel-span-2"><div className="panel-head"><div><h2>Vendas do período</h2><p>Movimentações comerciais dentro do filtro selecionado.</p></div></div><div className="activity-list">{period.sales.length?period.sales.slice(0,7).map(sale=><div className="activity-row" key={sale.id}><div className="activity-mark"><ShoppingBag size={15}/></div><div className="activity-main"><strong>{sale.customerName}</strong><span>{sale.number} · {dateTime(sale.createdAt)}</span></div><div className="activity-side"><strong>{money(sale.total)}</strong><Badge tone={sale.orderStatus==='Entregue'?'success':sale.orderStatus==='Pronto'?'info':'warning'}>{sale.orderStatus}</Badge></div></div>):<EmptyState icon={<ShoppingBag/>} title="Nenhuma venda no período" text="Altere o filtro ou registre uma nova venda."/>}</div></section>
-      <section className="panel"><div className="panel-head"><div><h2>Estoque em atenção</h2><p>Variantes no limite ou abaixo dele.</p></div><AlertTriangle size={17}/></div>{low.length?<div className="compact-list">{low.map(({p,v})=><div className="compact-row" key={v.id}><div><strong>{p.name}</strong><span>{v.color||'Sem cor'} · {v.size||'Sem tamanho'}</span></div><Badge tone={v.stock===0?'danger':'warning'}>{v.stock} un.</Badge></div>)}</div>:<EmptyState icon={<PackageCheck/>} title="Estoque saudável" text="Nenhuma variante está abaixo do mínimo."/>}</section>
-      <section className="panel"><div className="panel-head"><div><h2>Mais vendidos</h2><p>Ranking do período por quantidade.</p></div></div><div className="ranking-list">{top.map((x,i)=><div className="ranking-row" key={x.p.id}><b>{String(i+1).padStart(2,'0')}</b><div><strong>{x.p.name}</strong><span>{x.p.category}</span></div><em>{x.qty} un.</em></div>)}</div></section>
-      <section className="panel"><div className="panel-head"><div><h2>Indicadores</h2><p>Leitura rápida do período.</p></div></div><div className="summary-lines"><div><span>Ticket médio</span><strong>{money(period.ticket)}</strong></div><div><span>Margem bruta</span><strong>{period.revenue?((period.grossProfit/period.revenue)*100).toFixed(1):'0.0'}%</strong></div><div><span>Margem líquida</span><strong>{period.revenue?((period.netProfit/period.revenue)*100).toFixed(1):'0.0'}%</strong></div><div><span>A receber hoje</span><strong>{money(data.summary.receivablePending)}</strong></div></div></section>
+      <section className="panel panel-span-2"><div className="panel-head"><div><h2>Pedidos que ainda estão rodando</h2><p>O que precisa ser separado, finalizado ou entregue.</p></div></div>{activeOrders.length?<div className="activity-list">{activeOrders.slice(0,8).map(sale=><div className="activity-row" key={sale.id}><div className="activity-mark"><ShoppingBag size={15}/></div><div className="activity-main"><strong>{sale.customerName}</strong><span>{sale.number} · {sale.items.reduce((a,i)=>a+i.quantity,0)} peça(s) · {dateTime(sale.createdAt)}</span></div><div className="activity-side"><strong>{money(sale.total)}</strong><Badge tone={sale.orderStatus==='Pronto'?'info':'warning'}>{sale.orderStatus}</Badge></div></div>)}</div>:<EmptyState icon={<PackageCheck/>} title="Nenhum pedido em andamento" text="Não há pedidos aguardando separação ou entrega."/>}</section>
+
+      <section className="panel"><div className="panel-head"><div><h2>Estoque em atenção</h2><p>Variantes no limite ou abaixo dele.</p></div><AlertTriangle size={17}/></div>{low.length?<div className="compact-list">{low.slice(0,6).map(({p,v})=><div className="compact-row" key={v.id}><div><strong>{p.name}</strong><span>{v.color||'Sem cor'} · {v.size||'Sem tamanho'}</span></div><Badge tone={v.stock===0?'danger':'warning'}>{v.stock} un.</Badge></div>)}</div>:<EmptyState icon={<PackageCheck/>} title="Estoque saudável" text="Nenhuma variante está abaixo do mínimo."/>}</section>
+
+      <section className="panel"><div className="panel-head"><div><h2>Contas vencidas</h2><p>Clientes que precisam de acompanhamento.</p></div><Clock3 size={17}/></div>{overdue.length?<div className="compact-list">{overdue.slice(0,6).map(r=><div className="compact-row" key={r.id}><div><strong>{r.customerName}</strong><span>{r.saleNumber} · venceu {shortDate(r.dueDate!)}</span></div><Badge tone="danger">{money(r.amount)}</Badge></div>)}</div>:<EmptyState icon={<Clock3/>} title="Nenhuma conta vencida" text="Não há recebimentos pendentes fora do prazo."/>}</section>
+
+      <section className="panel"><div className="panel-head"><div><h2>Mais vendidos</h2><p>Ranking por quantidade no período escolhido.</p></div></div>{top.length?<div className="ranking-list">{top.map((x,i)=><div className="ranking-row" key={x.p.id}><b>{String(i+1).padStart(2,'0')}</b><div><strong>{x.p.name}</strong><span>{x.p.category}</span></div><em>{x.qty} un.</em></div>)}</div>:<EmptyState icon={<ShoppingBag/>} title="Sem vendas no período" text="O ranking aparecerá conforme houver vendas."/>}</section>
     </div>
   </>
 }

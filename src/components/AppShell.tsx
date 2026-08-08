@@ -25,7 +25,7 @@ const items:Array<{key:PageKey;label:string;icon:typeof LayoutDashboard;section:
   {key:'finance',label:'Financeiro',icon:WalletCards,section:'Financeiro'},
   {key:'receivables',label:'A receber',icon:CircleDollarSign,section:'Financeiro'},
   {key:'expenses',label:'Despesas',icon:Receipt,section:'Financeiro'},
-  {key:'capital',label:'Capital e retiradas',icon:Landmark,section:'Financeiro'},
+  {key:'capital',label:'Sócios e retiradas',icon:Landmark,section:'Financeiro'},
   {key:'reports',label:'Relatórios',icon:ChartNoAxesCombined,section:'Análise'},
   {key:'data',label:'Dados',icon:Database,section:'Sistema'},
   {key:'settings',label:'Configurações',icon:Settings2,section:'Sistema'},

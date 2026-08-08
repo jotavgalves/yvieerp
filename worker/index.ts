@@ -7,6 +7,7 @@ import { createExpense, deleteExpense, markExpensePaid, updateExpense } from './
 import { adjustStock, createStockEntry, deleteStockEntry } from './routes/inventory';
 import { applyInventoryCount, cancelInventoryCount, createInventoryCount } from './routes/inventoryCounts';
 import { deleteMedia, getMedia, uploadMedia } from './routes/media';
+import { getOwnerPolicy, saveOwnerPolicy } from './routes/ownerPolicy';
 import { createOwnerTransaction, deleteOwnerTransaction } from './routes/ownerTransactions';
 import { savePricing } from './routes/pricing';
 import { archiveProduct, createProduct, duplicateProduct, updateProduct } from './routes/products';
@@ -85,6 +86,8 @@ export default {
       const expensePaid=url.pathname.match(/^\/api\/expenses\/([^/]+)\/paid$/);if(expensePaid&&request.method==='POST')return markExpensePaid(env,expensePaid[1]);
       const expense=url.pathname.match(/^\/api\/expenses\/([^/]+)$/);if(expense&&request.method==='PUT')return updateExpense(request,env,expense[1]);if(expense&&request.method==='DELETE')return deleteExpense(env,expense[1]);
 
+      if(url.pathname==='/api/owner-policy'&&request.method==='GET')return getOwnerPolicy(env);
+      if(url.pathname==='/api/owner-policy'&&request.method==='PUT')return saveOwnerPolicy(request,env);
       if(url.pathname==='/api/owner-transactions'&&request.method==='POST')return createOwnerTransaction(request,env);
       const ownerTransaction=url.pathname.match(/^\/api\/owner-transactions\/([^/]+)$/);if(ownerTransaction&&request.method==='DELETE')return deleteOwnerTransaction(env,ownerTransaction[1]);
 
