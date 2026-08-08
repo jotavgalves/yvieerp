@@ -8,6 +8,7 @@ type SaleInput = {
   paymentMethod?: string;
   paymentStatus?: 'Pago' | 'Pendente';
   orderStatus?: 'Separando' | 'Pronto' | 'Entregue';
+  dueDate?: string;
   items?: Array<{ productId?: string; variantId?: string; quantity?: number; unitPrice?: number }>;
 };
 
@@ -36,12 +37,14 @@ export async function createSale(request: Request, env: Env) {
   const saleNumber = createSaleNumber();
   const orderStatus = ['Separando','Pronto','Entregue'].includes(String(input.orderStatus)) ? input.orderStatus! : 'Separando';
   const paymentStatus = input.paymentStatus === 'Pendente' ? 'Pendente' : 'Pago';
-  const statements: D1PreparedStatement[] = [env.DB.prepare(`INSERT INTO sales(id,number,customer_id,order_status,payment_status,payment_method,subtotal,discount,total,cost_total,profit,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(saleId,saleNumber,String(input.customerId),orderStatus,paymentStatus,String(input.paymentMethod || 'Pix').trim() || 'Pix',subtotal,discount,total,costTotal,total-costTotal,timestamp,timestamp)];
+  const deliveredAt=orderStatus==='Entregue'?timestamp:null;
+  const statements: D1PreparedStatement[] = [env.DB.prepare(`INSERT INTO sales(id,number,customer_id,order_status,payment_status,payment_method,subtotal,discount,total,cost_total,profit,created_at,updated_at,delivered_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(saleId,saleNumber,String(input.customerId),orderStatus,paymentStatus,String(input.paymentMethod || 'Pix').trim() || 'Pix',subtotal,discount,total,costTotal,total-costTotal,timestamp,timestamp,deliveredAt)];
   for (const item of loaded) {
     statements.push(env.DB.prepare('UPDATE product_variants SET stock=stock-?,updated_at=? WHERE id=?').bind(item.quantity,timestamp,item.variantId));
     statements.push(env.DB.prepare('INSERT INTO sale_items(id,sale_id,product_id,variant_id,quantity,unit_price,unit_cost) VALUES(?,?,?,?,?,?,?)').bind(makeId('sai'),saleId,item.productId,item.variantId,item.quantity,item.unitPrice,item.unitCost));
     statements.push(env.DB.prepare('INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,reference_type,reference_id,note,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(makeId('mov'),item.productId,item.variantId,'Venda',-item.quantity,item.unitCost,'sale',saleId,saleNumber,timestamp));
   }
+  if(paymentStatus==='Pendente'&&total>0){statements.push(env.DB.prepare(`INSERT INTO accounts_receivable(id,sale_id,description,amount,due_date,status,created_at,updated_at) VALUES(?,?,?,?,?,'Pendente',?,?)`).bind(makeId('rec'),saleId,`Saldo de ${saleNumber}`,total,typeof input.dueDate==='string'&&input.dueDate?input.dueDate:timestamp.slice(0,10),timestamp,timestamp));}
   await env.DB.batch(statements);
   return json({ id: saleId, number: saleNumber }, 201);
 }
@@ -49,7 +52,9 @@ export async function createSale(request: Request, env: Env) {
 export async function updateOrderStatus(request: Request, env: Env, saleId: string) {
   const input = await readJson<{ orderStatus?: string }>(request);
   if (!['Separando','Pronto','Entregue'].includes(String(input.orderStatus))) return fail('Status inválido.');
-  const result = await env.DB.prepare("UPDATE sales SET order_status=?,updated_at=? WHERE id=? AND order_status<>'Cancelado'").bind(input.orderStatus,now(),saleId).run();
+  const timestamp=now();
+  const deliveredAt=input.orderStatus==='Entregue'?timestamp:null;
+  const result = await env.DB.prepare("UPDATE sales SET order_status=?,delivered_at=?,updated_at=? WHERE id=? AND order_status<>'Cancelado'").bind(input.orderStatus,deliveredAt,timestamp,saleId).run();
   if (!result.meta.changes) {
     const sale = await env.DB.prepare('SELECT order_status FROM sales WHERE id=?').bind(saleId).first<{ order_status: string }>();
     if (!sale) return fail('Venda não encontrada.', 404);
@@ -64,7 +69,7 @@ export async function cancelSale(env: Env, saleId: string) {
   if (sale.order_status === 'Cancelado') return json({ ok: true });
   const items = await env.DB.prepare('SELECT * FROM sale_items WHERE sale_id=?').bind(saleId).all<any>();
   const timestamp = now();
-  const statements: D1PreparedStatement[] = [env.DB.prepare("UPDATE sales SET order_status='Cancelado',updated_at=? WHERE id=?").bind(timestamp,saleId)];
+  const statements: D1PreparedStatement[] = [env.DB.prepare("UPDATE sales SET order_status='Cancelado',delivered_at=NULL,updated_at=? WHERE id=?").bind(timestamp,saleId),env.DB.prepare("UPDATE accounts_receivable SET status='Cancelado',updated_at=? WHERE sale_id=? AND status='Pendente'").bind(timestamp,saleId)];
   for (const item of items.results || []) {
     statements.push(env.DB.prepare('UPDATE product_variants SET stock=stock+?,updated_at=? WHERE id=?').bind(item.quantity,timestamp,item.variant_id));
     statements.push(env.DB.prepare('INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,reference_type,reference_id,note,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(makeId('mov'),item.product_id,item.variant_id,'Cancelamento',item.quantity,item.unit_cost,'sale',saleId,`Cancelamento ${sale.number}`,timestamp));
