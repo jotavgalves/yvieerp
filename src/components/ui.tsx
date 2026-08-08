@@ -46,13 +46,13 @@ export function EmptyState({ icon, title, text, action }: { icon: ReactNode; tit
 export function Modal({ open, title, subtitle, children, footer, onClose, wide = false }: { open: boolean; title: string; subtitle?: string; children: ReactNode; footer?: ReactNode; onClose: () => void; wide?: boolean }) {
   useOverlayLock(open);
   if (!open) return null;
-  return <div className="overlay" role="dialog" aria-modal="true" onWheel={e=>e.stopPropagation()}><div className={`modal ${wide?'modal-wide':''}`}><header className="modal-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><IconButton label="Fechar" onClick={onClose}><X size={18}/></IconButton></header><div className="modal-body">{children}</div>{footer && <footer className="modal-foot">{footer}</footer>}</div></div>;
+  return <div className="overlay" role="dialog" aria-modal="true"><div className={`modal ${wide?'modal-wide':''}`}><header className="modal-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><IconButton label="Fechar" onClick={onClose}><X size={18}/></IconButton></header><div className="modal-body">{children}</div>{footer && <footer className="modal-foot">{footer}</footer>}</div></div>;
 }
 
 export function Drawer({ open, title, subtitle, children, footer, onClose }: { open: boolean; title: string; subtitle?: string; children: ReactNode; footer?: ReactNode; onClose: () => void }) {
   useOverlayLock(open);
   if (!open) return null;
-  return <div className="overlay drawer-overlay" role="dialog" aria-modal="true" onWheel={e=>e.stopPropagation()}><aside className="drawer"><header className="modal-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><IconButton label="Fechar" onClick={onClose}><X size={18}/></IconButton></header><div className="drawer-body">{children}</div>{footer && <footer className="modal-foot">{footer}</footer>}</aside></div>;
+  return <div className="overlay drawer-overlay" role="dialog" aria-modal="true"><aside className="drawer"><header className="modal-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><IconButton label="Fechar" onClick={onClose}><X size={18}/></IconButton></header><div className="drawer-body">{children}</div>{footer && <footer className="modal-foot">{footer}</footer>}</aside></div>;
 }
 
 export function StatCard({ label, value, note, icon }: { label: string; value: string; note: string; icon: ReactNode }) {
