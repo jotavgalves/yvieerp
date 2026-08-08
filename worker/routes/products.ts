@@ -12,6 +12,7 @@ interface VariantInput {
   averageCost?: number;
   salePrice?: number;
   active?: boolean;
+  imageKey?: string | null;
 }
 
 interface ProductPayload {
@@ -19,6 +20,7 @@ interface ProductPayload {
   category?: string;
   collection?: string;
   status?: 'Ativo' | 'Arquivado';
+  imageKey?: string | null;
   variants?: VariantInput[];
 }
 
@@ -32,14 +34,15 @@ export async function createProduct(request: Request, env: Env) {
   const variants = Array.isArray(input.variants) ? input.variants : [];
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`
-      INSERT INTO products(id,name,category,collection,status,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?)
+      INSERT INTO products(id,name,category,collection,status,image_key,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?)
     `).bind(
       productId,
       name,
       String(input.category || 'Sem categoria').trim() || 'Sem categoria',
       nullable(input.collection),
       input.status === 'Arquivado' ? 'Arquivado' : 'Ativo',
+      nullable(input.imageKey),
       timestamp,
       timestamp,
     ),
@@ -51,12 +54,12 @@ export async function createProduct(request: Request, env: Env) {
     const cost = Math.max(0, number(variant.averageCost));
     statements.push(env.DB.prepare(`
       INSERT INTO product_variants(
-        id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,active,created_at,updated_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+        id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,active,image_key,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).bind(
       variantId, productId, nullable(variant.color), nullable(variant.size), nullable(variant.sku),
       stock, integer(variant.minStock, 1), cost, Math.max(0, number(variant.salePrice)),
-      variant.active === false ? 0 : 1, timestamp, timestamp,
+      variant.active === false ? 0 : 1, nullable(variant.imageKey), timestamp, timestamp,
     ));
     if (stock > 0) {
       statements.push(env.DB.prepare(`
@@ -91,13 +94,14 @@ export async function updateProduct(request: Request, env: Env, productId: strin
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`
       UPDATE products
-      SET name=?,category=?,collection=?,status=?,updated_at=?
+      SET name=?,category=?,collection=?,status=?,image_key=?,updated_at=?
       WHERE id=?
     `).bind(
       name,
       String(input.category || 'Sem categoria').trim() || 'Sem categoria',
       nullable(input.collection),
       input.status === 'Arquivado' ? 'Arquivado' : 'Ativo',
+      nullable(input.imageKey),
       timestamp,
       productId,
     ),
@@ -111,12 +115,12 @@ export async function updateProduct(request: Request, env: Env, productId: strin
       const cost = Math.max(0, number(variant.averageCost));
       statements.push(env.DB.prepare(`
         UPDATE product_variants
-        SET color=?,size=?,sku=?,stock=?,min_stock=?,average_cost=?,sale_price=?,active=?,updated_at=?
+        SET color=?,size=?,sku=?,stock=?,min_stock=?,average_cost=?,sale_price=?,active=?,image_key=?,updated_at=?
         WHERE id=? AND product_id=?
       `).bind(
         nullable(variant.color), nullable(variant.size), nullable(variant.sku), stock,
         integer(variant.minStock, 1), cost, Math.max(0, number(variant.salePrice)),
-        variant.active === false ? 0 : 1, timestamp, variant.id, productId,
+        variant.active === false ? 0 : 1, nullable(variant.imageKey), timestamp, variant.id, productId,
       ));
       const delta = stock - number(previous.stock);
       if (delta !== 0) {
@@ -131,12 +135,12 @@ export async function updateProduct(request: Request, env: Env, productId: strin
       const cost = Math.max(0, number(variant.averageCost));
       statements.push(env.DB.prepare(`
         INSERT INTO product_variants(
-          id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,active,created_at,updated_at
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+          id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,active,image_key,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
       `).bind(
         variantId, productId, nullable(variant.color), nullable(variant.size), nullable(variant.sku), stock,
         integer(variant.minStock, 1), cost, Math.max(0, number(variant.salePrice)),
-        variant.active === false ? 0 : 1, timestamp, timestamp,
+        variant.active === false ? 0 : 1, nullable(variant.imageKey), timestamp, timestamp,
       ));
       if (stock > 0) {
         statements.push(env.DB.prepare(`
@@ -165,19 +169,19 @@ export async function duplicateProduct(env: Env, productId: string) {
   const timestamp = now();
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(`
-      INSERT INTO products(id,name,category,collection,status,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?)
-    `).bind(newProductId, `${product.name} — cópia`, product.category, product.collection, 'Ativo', timestamp, timestamp),
+      INSERT INTO products(id,name,category,collection,status,image_key,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?)
+    `).bind(newProductId, `${product.name} — cópia`, product.category, product.collection, 'Ativo', product.image_key, timestamp, timestamp),
   ];
 
   for (const variant of variants.results || []) {
     statements.push(env.DB.prepare(`
       INSERT INTO product_variants(
-        id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,active,created_at,updated_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+        id,product_id,color,size,sku,stock,min_stock,average_cost,sale_price,active,image_key,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).bind(
       makeId('var'), newProductId, variant.color, variant.size, null, 0, variant.min_stock,
-      variant.average_cost, variant.sale_price, 1, timestamp, timestamp,
+      variant.average_cost, variant.sale_price, 1, variant.image_key, timestamp, timestamp,
     ));
   }
 
