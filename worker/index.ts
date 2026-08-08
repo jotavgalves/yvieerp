@@ -10,8 +10,8 @@ import { deleteMedia, getMedia, uploadMedia } from './routes/media';
 import { getOwnerPolicy, saveOwnerPolicy } from './routes/ownerPolicy';
 import { createOwnerTransaction, deleteOwnerTransaction } from './routes/ownerTransactions';
 import { savePricing } from './routes/pricing';
-import { archiveProduct, createProduct, duplicateProduct, updateProduct } from './routes/products';
-import { cancelPurchase, createPurchase, receivePurchase } from './routes/purchases';
+import { archiveProduct, createProduct, deleteProduct, duplicateProduct, updateProduct } from './routes/products';
+import { cancelPurchase, createPurchase, receivePurchase, reversePurchase } from './routes/purchases';
 import { cancelReceivable, receiveReceivable } from './routes/receivables';
 import { createReturn } from './routes/returns';
 import { cancelSale, createSale, deleteSale, updateOrderDetails, updateOrderStatus } from './routes/sales';
@@ -57,9 +57,10 @@ export default {
       if(url.pathname==='/api/purchases'&&request.method==='POST')return createPurchase(request,env);
       const purchaseReceive=url.pathname.match(/^\/api\/purchases\/([^/]+)\/receive$/);if(purchaseReceive&&request.method==='POST')return receivePurchase(env,purchaseReceive[1]);
       const purchaseCancel=url.pathname.match(/^\/api\/purchases\/([^/]+)\/cancel$/);if(purchaseCancel&&request.method==='POST')return cancelPurchase(env,purchaseCancel[1]);
+      const purchaseReverse=url.pathname.match(/^\/api\/purchases\/([^/]+)\/reverse$/);if(purchaseReverse&&request.method==='POST')return reversePurchase(env,purchaseReverse[1]);
 
       if(url.pathname==='/api/products'&&request.method==='POST')return createProduct(request,env);
-      const product=url.pathname.match(/^\/api\/products\/([^/]+)$/);if(product&&request.method==='PUT')return updateProduct(request,env,product[1]);
+      const product=url.pathname.match(/^\/api\/products\/([^/]+)$/);if(product&&request.method==='PUT')return updateProduct(request,env,product[1]);if(product&&request.method==='DELETE')return deleteProduct(env,product[1]);
       const duplicate=url.pathname.match(/^\/api\/products\/([^/]+)\/duplicate$/);if(duplicate&&request.method==='POST')return duplicateProduct(env,duplicate[1]);
       const archive=url.pathname.match(/^\/api\/products\/([^/]+)\/archive$/);if(archive&&request.method==='POST')return archiveProduct(env,archive[1]);
 
