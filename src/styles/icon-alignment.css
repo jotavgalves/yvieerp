@@ -1,0 +1,51 @@
+/* Centralização geométrica dos ícones/fotos nas linhas de variantes.
+   A regra genérica .product-variant-summary span possui maior especificidade
+   e anteriormente sobrescrevia o display:grid de .tiny-product-photo. */
+.product-variant-summary .variant-summary-with-photo{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  min-width:0;
+}
+
+.product-variant-summary .tiny-product-photo,
+.variant-edit-title .tiny-product-photo{
+  width:32px;
+  height:32px;
+  min-width:32px;
+  min-height:32px;
+  flex:0 0 32px;
+  display:grid!important;
+  place-items:center!important;
+  align-items:center!important;
+  justify-items:center!important;
+  margin:0!important;
+  padding:0!important;
+  line-height:0!important;
+  box-sizing:border-box;
+}
+
+.product-variant-summary .tiny-product-photo > svg,
+.variant-edit-title .tiny-product-photo > svg,
+.entity-icon > svg,
+.product-icon > svg,
+.product-detail-photo > svg,
+.purchase-thumb > svg{
+  display:block;
+  margin:0!important;
+  padding:0!important;
+  align-self:center;
+  justify-self:center;
+}
+
+.product-variant-summary > div{
+  align-items:center;
+}
+
+.product-variant-summary .variant-summary-with-photo > div{
+  min-width:0;
+}
+
+.product-variant-summary .variant-summary-with-photo > div > span{
+  margin-top:2px;
+}
