@@ -20,7 +20,8 @@ export async function checkIntegrity(env:Env){
 
   const payment=await env.DB.prepare(`
     SELECT s.id,s.number,s.payment_status,s.order_status,s.deleted_at,
-           COALESCE(SUM(CASE WHEN ar.status='Pendente' THEN ar.amount ELSE 0 END),0) pending_amount
+           COALESCE(SUM(CASE WHEN ar.status='Pendente' THEN ar.amount ELSE 0 END),0) pending_amount,
+           COALESCE(SUM(CASE WHEN ar.status='Pendente' THEN 1 ELSE 0 END),0) pending_count
     FROM sales s
     LEFT JOIN accounts_receivable ar ON ar.sale_id=s.id
     GROUP BY s.id,s.number,s.payment_status,s.order_status,s.deleted_at
@@ -28,8 +29,12 @@ export async function checkIntegrity(env:Env){
       (s.deleted_at IS NULL AND s.order_status<>'Cancelado' AND s.payment_status='Pendente' AND pending_amount<=0.009)
       OR (s.deleted_at IS NULL AND s.order_status<>'Cancelado' AND s.payment_status='Pago' AND pending_amount>0.009)
       OR ((s.deleted_at IS NOT NULL OR s.order_status='Cancelado') AND pending_amount>0.009)
+      OR (s.deleted_at IS NULL AND s.order_status<>'Cancelado' AND pending_count>1)
   `).all<any>();
-  for(const row of payment.results||[])issues.push({code:'PAYMENT_RECEIVABLE_MISMATCH',severity:'critical',entity:row.id,message:`${row.number}: status financeiro ${row.payment_status}, mas o A receber pendente é R$ ${Number(row.pending_amount).toFixed(2)}.`,details:{paymentStatus:row.payment_status,pendingAmount:Number(row.pending_amount),orderStatus:row.order_status}});
+  for(const row of payment.results||[]){
+    const pendingCount=Number(row.pending_count||0);
+    issues.push({code:pendingCount>1?'MULTIPLE_PENDING_RECEIVABLES':'PAYMENT_RECEIVABLE_MISMATCH',severity:'critical',entity:row.id,message:pendingCount>1?`${row.number}: existem ${pendingCount} cobranças pendentes simultâneas para o mesmo pedido. O ERP deve manter apenas um saldo corrente.`:`${row.number}: status financeiro ${row.payment_status}, mas o A receber pendente é R$ ${Number(row.pending_amount).toFixed(2)}.`,details:{paymentStatus:row.payment_status,pendingAmount:Number(row.pending_amount),pendingCount,orderStatus:row.order_status}});
+  }
 
   const credits=await env.DB.prepare(`
     SELECT c.id,c.name,COALESCE(SUM(ccm.amount),0) balance
@@ -51,6 +56,23 @@ export async function checkIntegrity(env:Env){
        OR si.returned_quantity>si.quantity
   `).all<any>();
   for(const row of returned.results||[])issues.push({code:'RETURN_QUANTITY_MISMATCH',severity:'critical',entity:row.id,message:`${row.number} · ${[row.product_name,row.color,row.size].filter(Boolean).join(' · ')}: controle de devolução ${row.returned_quantity}, histórico ${row.ledger_returned}.`,details:{sold:Number(row.quantity),returned:Number(row.returned_quantity),ledgerReturned:Number(row.ledger_returned)}});
+
+  const settlements=await env.DB.prepare(`
+    SELECT r.id,r.number,s.number sale_number,
+           r.returned_value,r.exchange_value,r.debt_offset,r.refund_amount,r.credit_amount,r.additional_amount,r.additional_payment_status,
+           CASE WHEN r.returned_value>=r.exchange_value THEN r.returned_value-r.exchange_value ELSE 0 END customer_favor,
+           CASE WHEN r.exchange_value>r.returned_value THEN r.exchange_value-r.returned_value ELSE 0 END expected_additional
+    FROM returns r
+    JOIN sales s ON s.id=r.sale_id
+    WHERE ABS(
+      (CASE WHEN r.returned_value>=r.exchange_value THEN r.returned_value-r.exchange_value ELSE 0 END)
+      -(r.debt_offset+r.refund_amount+r.credit_amount)
+    )>0.009
+       OR ABS(r.additional_amount-(CASE WHEN r.exchange_value>r.returned_value THEN r.exchange_value-r.returned_value ELSE 0 END))>0.009
+       OR (r.additional_amount>0.009 AND r.additional_payment_status IS NULL)
+       OR (r.additional_amount<=0.009 AND r.additional_payment_status IS NOT NULL)
+  `).all<any>();
+  for(const row of settlements.results||[])issues.push({code:'RETURN_SETTLEMENT_MISMATCH',severity:'critical',entity:row.id,message:`${row.number} · ${row.sale_number}: o acerto financeiro da troca/devolução não fecha com o valor das mercadorias.`,details:{returnedValue:Number(row.returned_value),exchangeValue:Number(row.exchange_value),debtOffset:Number(row.debt_offset),refund:Number(row.refund_amount),credit:Number(row.credit_amount),additional:Number(row.additional_amount)}});
 
   const purchases=await env.DB.prepare(`
     SELECT pu.id,pu.number,pu.status,pu.received_at,pu.reversed_at,
