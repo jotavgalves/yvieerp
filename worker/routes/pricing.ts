@@ -8,8 +8,6 @@ interface PricingPayload {
   otherCost?: number;
   targetMargin?: number;
   cardFee?: number;
-  appliedMode?: 'cash' | 'card' | 'custom';
-  customPrice?: number;
 }
 
 const roundMoney=(value:number)=>Math.round((value+Number.EPSILON)*100)/100;
@@ -28,15 +26,12 @@ export async function savePricing(request:Request,env:Env,variantId:string){
   const totalCost=roundMoney(pieceCost+freightCost+otherCost);
   const cashPrice=targetMargin>=100?0:roundMoney(totalCost/(1-targetMargin/100));
   const cardPrice=cardFee>=100?cashPrice:roundMoney(cashPrice/(1-cardFee/100));
-  const mode=input.appliedMode||'cash';
-  const customPrice=Math.max(0,number(input.customPrice));
-  const appliedPrice=mode==='card'?cardPrice:mode==='custom'?customPrice:cashPrice;
-  if(appliedPrice<=0)return fail('O preço aplicado precisa ser maior que zero.');
+  if(cashPrice<=0||cardPrice<=0)return fail('Os preços calculados precisam ser maiores que zero.');
 
   const id=makeId('prc'),timestamp=now();
   await env.DB.batch([
-    env.DB.prepare(`UPDATE product_variants SET sale_price=?,updated_at=? WHERE id=?`).bind(appliedPrice,timestamp,variantId),
-    env.DB.prepare(`INSERT INTO pricing_history(id,product_id,variant_id,piece_cost,freight_cost,other_cost,total_cost,target_margin,card_fee,cash_price,card_price,applied_price,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,variant.product_id,variantId,pieceCost,freightCost,otherCost,totalCost,targetMargin,cardFee,cashPrice,cardPrice,appliedPrice,timestamp)
+    env.DB.prepare(`UPDATE product_variants SET sale_price=?,cash_price=?,card_price=?,updated_at=? WHERE id=?`).bind(cashPrice,cashPrice,cardPrice,timestamp,variantId),
+    env.DB.prepare(`INSERT INTO pricing_history(id,product_id,variant_id,piece_cost,freight_cost,other_cost,total_cost,target_margin,card_fee,cash_price,card_price,applied_price,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,variant.product_id,variantId,pieceCost,freightCost,otherCost,totalCost,targetMargin,cardFee,cashPrice,cardPrice,cashPrice,timestamp)
   ]);
-  return json({id,totalCost,cashPrice,cardPrice,appliedPrice},201);
+  return json({id,totalCost,cashPrice,cardPrice},201);
 }
