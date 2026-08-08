@@ -27,7 +27,7 @@ export async function bootstrap(env:Env){
     env.DB.prepare(`SELECT ici.*,p.name AS product_name,v.color,v.size FROM inventory_count_items ici JOIN products p ON p.id=ici.product_id JOIN product_variants v ON v.id=ici.variant_id ORDER BY ici.rowid ASC`).all()
   ]);
 
-  const variants=(variantsR.results as any[]).map(v=>({id:v.id,productId:v.product_id,color:v.color,size:v.size,sku:v.sku,stock:v.stock,minStock:v.min_stock,averageCost:v.average_cost,salePrice:v.sale_price,active:!!v.active,imageKey:v.image_key||null,imageUrl:v.image_key?`/media/${v.image_key}`:null}));
+  const variants=(variantsR.results as any[]).map(v=>{const cash=Number(v.cash_price||v.sale_price||0);const card=Number(v.card_price||cash);return{id:v.id,productId:v.product_id,color:v.color,size:v.size,sku:v.sku,stock:v.stock,minStock:v.min_stock,averageCost:v.average_cost,salePrice:cash,cashPrice:cash,cardPrice:card,active:!!v.active,imageKey:v.image_key||null,imageUrl:v.image_key?`/media/${v.image_key}`:null}});
   const products=(productsR.results as any[]).map(p=>({id:p.id,name:p.name,category:p.category,collection:p.collection,status:p.status,imageKey:p.image_key||null,imageUrl:p.image_key?`/media/${p.image_key}`:null,createdAt:p.created_at,updatedAt:p.updated_at,variants:variants.filter(v=>v.productId===p.id)}));
   const items=(itemsR.results as any[]).map(i=>({id:i.id,saleId:i.sale_id,productId:i.product_id,variantId:i.variant_id,productName:i.product_name,color:i.color,size:i.size,quantity:i.quantity,unitPrice:i.unit_price,unitCost:i.unit_cost}));
   const sales=(salesR.results as any[]).map(s=>({id:s.id,number:s.number,customerId:s.customer_id,customerName:s.customer_name,orderStatus:s.order_status,paymentStatus:s.payment_status,paymentMethod:s.payment_method,subtotal:s.subtotal,discount:s.discount,total:s.total,costTotal:s.cost_total,profit:s.profit,createdAt:s.created_at,deliveredAt:s.delivered_at||null,items:items.filter(i=>i.saleId===s.id)}));
@@ -57,7 +57,7 @@ export async function bootstrap(env:Env){
   const activeVariants=variants.filter(v=>v.active);
   const stockUnits=activeVariants.reduce((a,v)=>a+v.stock,0);
   const stockCost=activeVariants.reduce((a,v)=>a+v.stock*v.averageCost,0);
-  const stockPotentialRevenue=activeVariants.reduce((a,v)=>a+v.stock*v.salePrice,0);
+  const stockPotentialRevenue=activeVariants.reduce((a,v)=>a+v.stock*v.cashPrice,0);
   const stockPotentialProfit=stockPotentialRevenue-stockCost;
   const pendingPurchases=purchases.filter(p=>p.status==='Pedido').reduce((a,p)=>a+p.totalCost,0);
   const receivablePending=receivables.filter(r=>r.status==='Pendente').reduce((a,r)=>a+r.amount,0);

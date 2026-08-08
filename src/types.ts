@@ -24,6 +24,8 @@ export interface Variant {
   minStock: number;
   averageCost: number;
   salePrice: number;
+  cashPrice: number;
+  cardPrice: number;
   active: boolean;
   imageKey: string | null;
   imageUrl: string | null;

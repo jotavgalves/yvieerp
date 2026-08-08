@@ -12,12 +12,15 @@ type SaleInput = {
   items?: Array<{ productId?: string; variantId?: string; quantity?: number; unitPrice?: number }>;
 };
 
+const isCardMethod=(method:string)=>['Débito','Crédito'].includes(method);
+
 export async function createSale(request: Request, env: Env) {
   const input = await readJson<SaleInput>(request);
   const items = Array.isArray(input.items) ? input.items : [];
   if (!input.customerId || !items.length) return fail('Cliente e itens são obrigatórios.');
   const customer = await env.DB.prepare('SELECT id FROM customers WHERE id=?').bind(String(input.customerId)).first();
   if (!customer) return fail('Cliente não encontrado.', 404);
+  const paymentMethod=String(input.paymentMethod || 'Pix').trim() || 'Pix';
 
   const loaded: any[] = [];
   for (const item of items) {
@@ -25,7 +28,10 @@ export async function createSale(request: Request, env: Env) {
     if (!variant || !variant.active || variant.product_status !== 'Ativo') return fail('Um dos produtos não está disponível.', 409);
     const quantity = integer(item.quantity);
     if (quantity < 1 || Number(variant.stock) < quantity) return fail(`Estoque insuficiente para ${variant.product_name}.`, 409);
-    loaded.push({ productId: variant.product_id, variantId: variant.id, quantity, unitPrice: Math.max(0, number(item.unitPrice, variant.sale_price)), unitCost: number(variant.average_cost) });
+    const cashPrice=Math.max(0,number(variant.cash_price,number(variant.sale_price)));
+    const cardPrice=Math.max(0,number(variant.card_price,cashPrice));
+    const automaticPrice=isCardMethod(paymentMethod)?cardPrice:cashPrice;
+    loaded.push({ productId: variant.product_id, variantId: variant.id, quantity, unitPrice: Math.max(0, number(item.unitPrice, automaticPrice)), unitCost: number(variant.average_cost) });
   }
 
   const subtotal = loaded.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
@@ -38,7 +44,7 @@ export async function createSale(request: Request, env: Env) {
   const orderStatus = ['Separando','Pronto','Entregue'].includes(String(input.orderStatus)) ? input.orderStatus! : 'Separando';
   const paymentStatus = input.paymentStatus === 'Pendente' ? 'Pendente' : 'Pago';
   const deliveredAt=orderStatus==='Entregue'?timestamp:null;
-  const statements: D1PreparedStatement[] = [env.DB.prepare(`INSERT INTO sales(id,number,customer_id,order_status,payment_status,payment_method,subtotal,discount,total,cost_total,profit,created_at,updated_at,delivered_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(saleId,saleNumber,String(input.customerId),orderStatus,paymentStatus,String(input.paymentMethod || 'Pix').trim() || 'Pix',subtotal,discount,total,costTotal,total-costTotal,timestamp,timestamp,deliveredAt)];
+  const statements: D1PreparedStatement[] = [env.DB.prepare(`INSERT INTO sales(id,number,customer_id,order_status,payment_status,payment_method,subtotal,discount,total,cost_total,profit,created_at,updated_at,delivered_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(saleId,saleNumber,String(input.customerId),orderStatus,paymentStatus,paymentMethod,subtotal,discount,total,costTotal,total-costTotal,timestamp,timestamp,deliveredAt)];
   for (const item of loaded) {
     statements.push(env.DB.prepare('UPDATE product_variants SET stock=stock-?,updated_at=? WHERE id=?').bind(item.quantity,timestamp,item.variantId));
     statements.push(env.DB.prepare('INSERT INTO sale_items(id,sale_id,product_id,variant_id,quantity,unit_price,unit_cost) VALUES(?,?,?,?,?,?,?)').bind(makeId('sai'),saleId,item.productId,item.variantId,item.quantity,item.unitPrice,item.unitCost));
