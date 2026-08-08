@@ -46,8 +46,13 @@ export async function bootstrap(env:Env){
   const inventoryCounts=(countsR.results as any[]).map(c=>({id:c.id,title:c.title,status:c.status,notes:c.notes,createdAt:c.created_at,appliedAt:c.applied_at,items:countItems.filter(i=>i.countId===c.id)}));
 
   const validSales=sales.filter(s=>s.orderStatus!=='Cancelado');
-  const revenue=validSales.reduce((a,s)=>a+s.total,0);
-  const cost=validSales.reduce((a,s)=>a+s.costTotal,0);
+  const grossSales=validSales.reduce((a,s)=>a+s.total,0);
+  const baseCost=validSales.reduce((a,s)=>a+s.costTotal,0);
+  const returnValue=returns.reduce((a,r)=>a+r.refundAmount+r.creditAmount,0);
+  const returnedCost=returnItems.filter(i=>i.direction==='Entrada').reduce((a,i)=>a+i.quantity*i.unitCost,0);
+  const exchangeCost=returnItems.filter(i=>i.direction==='Saída').reduce((a,i)=>a+i.quantity*i.unitCost,0);
+  const revenue=Math.max(0,grossSales-returnValue);
+  const cost=Math.max(0,baseCost-returnedCost+exchangeCost);
   const expenseTotal=expenses.filter(e=>e.status==='Pago').reduce((a,e)=>a+e.amount,0);
   const activeVariants=variants.filter(v=>v.active);
   const stockUnits=activeVariants.reduce((a,v)=>a+v.stock,0);
@@ -58,13 +63,6 @@ export async function bootstrap(env:Env){
   const receivablePending=receivables.filter(r=>r.status==='Pendente').reduce((a,r)=>a+r.amount,0);
   const payableExpenses=expenses.filter(e=>e.status==='Pendente').reduce((a,e)=>a+e.amount,0);
 
-  return {
-    customers,products,sales,entries,expenses,pricing,suppliers,purchases,receivables,movements,returns,inventoryCounts,
-    summary:{
-      revenue,grossProfit:revenue-cost,expenses:expenseTotal,netProfit:revenue-cost-expenseTotal,
-      orders:validSales.length,ticketAverage:validSales.length?revenue/validSales.length:0,
-      stockUnits,stockCost,stockPotentialRevenue,stockPotentialProfit,pendingPurchases,receivablePending,payableExpenses
-    }
-  };
+  return {customers,products,sales,entries,expenses,pricing,suppliers,purchases,receivables,movements,returns,inventoryCounts,summary:{revenue,grossProfit:revenue-cost,expenses:expenseTotal,netProfit:revenue-cost-expenseTotal,orders:validSales.length,ticketAverage:validSales.length?revenue/validSales.length:0,stockUnits,stockCost,stockPotentialRevenue,stockPotentialProfit,pendingPurchases,receivablePending,payableExpenses}};
 }
 function parseTags(value:string){try{const x=JSON.parse(value);return Array.isArray(x)?x:[]}catch{return[]}}
