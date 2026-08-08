@@ -89,6 +89,25 @@ export interface Expense {
   createdAt: string;
 }
 
+export interface PricingRecord {
+  id: string;
+  productId: string;
+  variantId: string;
+  productName: string;
+  color: string | null;
+  size: string | null;
+  pieceCost: number;
+  freightCost: number;
+  otherCost: number;
+  totalCost: number;
+  targetMargin: number;
+  cardFee: number;
+  cashPrice: number;
+  cardPrice: number;
+  appliedPrice: number;
+  createdAt: string;
+}
+
 export interface Summary {
   revenue: number;
   grossProfit: number;
@@ -106,5 +125,6 @@ export interface BootstrapData {
   sales: Sale[];
   entries: StockEntry[];
   expenses: Expense[];
+  pricing: PricingRecord[];
   summary: Summary;
 }
