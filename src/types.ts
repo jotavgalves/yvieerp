@@ -11,6 +11,7 @@ export interface Customer {
   city: string | null;
   tags: string[];
   notes: string | null;
+  creditBalance: number;
   createdAt: string;
 }
 
@@ -62,14 +63,21 @@ export interface Sale {
   number: string;
   customerId: string;
   customerName: string;
+  customerPhone: string;
   orderStatus: OrderStatus;
   paymentStatus: PaymentStatus;
   paymentMethod: string;
   subtotal: number;
   discount: number;
+  creditUsed: number;
   total: number;
+  amountDue: number;
   costTotal: number;
   profit: number;
+  deliveryMethod: string | null;
+  deliveryAddress: string | null;
+  promisedDate: string | null;
+  orderNotes: string | null;
   createdAt: string;
   deliveredAt: string | null;
   items: SaleItem[];
@@ -223,6 +231,19 @@ export interface ReturnRecord {
   items: ReturnItem[];
 }
 
+export interface CustomerCreditMovement {
+  id: string;
+  customerId: string;
+  customerName: string;
+  saleId: string | null;
+  saleNumber: string | null;
+  returnId: string | null;
+  type: 'Crédito' | 'Uso' | 'Estorno' | 'Ajuste';
+  amount: number;
+  note: string | null;
+  createdAt: string;
+}
+
 export interface InventoryCountItem {
   id: string;
   countId: string;
@@ -246,6 +267,15 @@ export interface InventoryCount {
   items: InventoryCountItem[];
 }
 
+export interface OwnerTransaction {
+  id: string;
+  type: 'Aporte' | 'Pró-labore' | 'Retirada';
+  amount: number;
+  transactionDate: string;
+  notes: string | null;
+  createdAt: string;
+}
+
 export interface Summary {
   revenue: number;
   grossProfit: number;
@@ -260,6 +290,13 @@ export interface Summary {
   pendingPurchases: number;
   receivablePending: number;
   payableExpenses: number;
+  customerCreditOutstanding: number;
+  ownerContributions: number;
+  ownerWithdrawals: number;
+  ownerPayroll: number;
+  retainedProfit: number;
+  suggestedWithdrawal: number;
+  workingCapitalPosition: number;
 }
 
 export interface BootstrapData {
@@ -274,6 +311,8 @@ export interface BootstrapData {
   receivables: Receivable[];
   movements: InventoryMovement[];
   returns: ReturnRecord[];
+  customerCredits: CustomerCreditMovement[];
   inventoryCounts: InventoryCount[];
+  ownerTransactions: OwnerTransaction[];
   summary: Summary;
 }
