@@ -104,6 +104,7 @@ export default {
       if(message.includes('ENTRY_ALREADY_DELETED')||message.includes('entry-delete:'))return fail('Esta entrada já foi excluída ou está sendo revertida. Atualize a tela.',409);
       if(message.includes('INVENTORY_COUNT_ALREADY_APPLIED')||message.includes('inventory-count:'))return fail('Este inventário já foi aplicado. Atualize a tela.',409);
       if(message.includes('sale-reverse:'))return fail('Este pedido já foi cancelado/excluído ou está sendo revertido. Atualize a tela.',409);
+      if(message.includes('return-settlement:'))return fail('Este pedido mudou enquanto a troca/devolução estava aberta. Atualize a tela e refaça o acerto com o saldo atual.',409);
       if(message.includes('CHECK constraint failed'))return fail('A operação foi interrompida porque os dados mudaram enquanto você trabalhava. Atualize a tela e confira o estoque antes de tentar novamente.',409);
       if(message.includes('UNIQUE constraint failed'))return fail('Já existe um registro com este SKU ou identificador.',409);
       return fail('Não foi possível concluir a operação.',500);
