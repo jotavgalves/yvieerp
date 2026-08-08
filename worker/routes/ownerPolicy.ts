@@ -3,6 +3,16 @@ import { fail, json, readJson } from '../http';
 import type { Env } from '../types';
 
 type Payload={reservePercent?:number;monthlyProLabore?:number};
+const emptyPolicy={configured:false,reservePercent:0,monthlyProLabore:0};
+
+export async function getOwnerPolicy(env:Env){
+  const row=await env.DB.prepare(`SELECT value FROM app_settings WHERE key='owner_policy'`).first<{value:string}>();
+  if(!row?.value)return json(emptyPolicy);
+  try{
+    const parsed=JSON.parse(row.value) as Payload&{configured?:boolean};
+    return json({configured:parsed.configured===true,reservePercent:Math.min(100,Math.max(0,number(parsed.reservePercent))),monthlyProLabore:Math.max(0,number(parsed.monthlyProLabore))});
+  }catch{return json(emptyPolicy)}
+}
 
 export async function saveOwnerPolicy(request:Request,env:Env){
   const input=await readJson<Payload>(request);
