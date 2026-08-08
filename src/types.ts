@@ -69,6 +69,7 @@ export interface Sale {
   costTotal: number;
   profit: number;
   createdAt: string;
+  deliveredAt: string | null;
   items: SaleItem[];
 }
 
@@ -90,6 +91,10 @@ export interface Expense {
   amount: number;
   expenseDate: string;
   recurring: boolean;
+  status: 'Pago' | 'Pendente';
+  dueDate: string | null;
+  paidAt: string | null;
+  beneficiary: string | null;
   notes: string | null;
   createdAt: string;
 }
@@ -158,6 +163,87 @@ export interface Purchase {
   items: PurchaseItem[];
 }
 
+export interface Receivable {
+  id: string;
+  saleId: string;
+  saleNumber: string;
+  customerName: string;
+  description: string;
+  amount: number;
+  dueDate: string | null;
+  status: 'Pendente' | 'Recebido' | 'Cancelado';
+  receivedAt: string | null;
+  createdAt: string;
+}
+
+export interface InventoryMovement {
+  id: string;
+  productId: string;
+  variantId: string;
+  productName: string;
+  color: string | null;
+  size: string | null;
+  type: 'Entrada' | 'Venda' | 'Ajuste' | 'Cancelamento' | 'Devolução';
+  quantity: number;
+  unitCost: number | null;
+  referenceType: string | null;
+  referenceId: string | null;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface ReturnItem {
+  id: string;
+  returnId: string;
+  saleItemId: string | null;
+  productId: string;
+  variantId: string;
+  productName: string;
+  color: string | null;
+  size: string | null;
+  quantity: number;
+  direction: 'Entrada' | 'Saída';
+  unitCost: number;
+  unitPrice: number;
+}
+
+export interface ReturnRecord {
+  id: string;
+  number: string;
+  saleId: string;
+  saleNumber: string;
+  customerName: string;
+  type: 'Devolução' | 'Troca';
+  refundAmount: number;
+  creditAmount: number;
+  notes: string | null;
+  createdAt: string;
+  items: ReturnItem[];
+}
+
+export interface InventoryCountItem {
+  id: string;
+  countId: string;
+  productId: string;
+  variantId: string;
+  productName: string;
+  color: string | null;
+  size: string | null;
+  expectedQuantity: number;
+  countedQuantity: number;
+  difference: number;
+}
+
+export interface InventoryCount {
+  id: string;
+  title: string;
+  status: 'Rascunho' | 'Aplicado' | 'Cancelado';
+  notes: string | null;
+  createdAt: string;
+  appliedAt: string | null;
+  items: InventoryCountItem[];
+}
+
 export interface Summary {
   revenue: number;
   grossProfit: number;
@@ -170,6 +256,8 @@ export interface Summary {
   stockPotentialRevenue: number;
   stockPotentialProfit: number;
   pendingPurchases: number;
+  receivablePending: number;
+  payableExpenses: number;
 }
 
 export interface BootstrapData {
@@ -181,5 +269,9 @@ export interface BootstrapData {
   pricing: PricingRecord[];
   suppliers: Supplier[];
   purchases: Purchase[];
+  receivables: Receivable[];
+  movements: InventoryMovement[];
+  returns: ReturnRecord[];
+  inventoryCounts: InventoryCount[];
   summary: Summary;
 }

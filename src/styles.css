@@ -5,5 +5,7 @@
 @import './styles/workflows.css';
 @import './styles/commerce.css';
 @import './styles/procurement.css';
+@import './styles/operations.css';
 @import './styles/toast.css';
 @import './styles/responsive.css';
+@import './styles/overlays.css';

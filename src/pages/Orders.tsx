@@ -1,15 +1,19 @@
-import { GripVertical } from 'lucide-react';
-import type { DragEvent } from 'react';
+import { CheckCircle2, GripVertical, History } from 'lucide-react';
+import { useState, type DragEvent } from 'react';
 import { useData } from '../context/DataContext';
-import { api } from '../lib/api';
+import { api, notify } from '../lib/api';
 import { money, dateTime } from '../lib/format';
 import type { OrderStatus, Sale } from '../types';
-import { Badge, PageHeader } from '../components/ui';
+import { Badge, EmptyState, PageHeader } from '../components/ui';
 
-const columns:OrderStatus[]=['Separando','Pronto','Entregue'];
+const activeColumns:OrderStatus[]=['Separando','Pronto'];
 export function Orders(){
-  const {data,refresh}=useData();
-  async function drop(e:DragEvent,status:OrderStatus){e.preventDefault();const id=e.dataTransfer.getData('text/plain');if(!id)return;await api(`/api/sales/${id}/status`,{method:'PATCH',body:JSON.stringify({orderStatus:status})});await refresh()}
-  return <><PageHeader title="Pedidos" subtitle="Acompanhe a operação do pedido sem misturar logística com pagamento."/><div className="kanban">{columns.map(col=>{const rows=data?.sales.filter(s=>s.orderStatus===col)||[];return <section className="kanban-column" key={col} onDragOver={e=>e.preventDefault()} onDrop={e=>void drop(e,col)}><header><div><span className={`status-dot dot-${col.toLowerCase()}`}/><strong>{col}</strong></div><b>{rows.length}</b></header><div className="kanban-list">{rows.map(s=><OrderCard sale={s} key={s.id}/>)}</div></section>})}</div></>
+  const {data,refresh}=useData();const [tab,setTab]=useState<'active'|'done'>('active');
+  async function drop(e:DragEvent,status:OrderStatus){e.preventDefault();const id=e.dataTransfer.getData('text/plain');if(!id)return;await api(`/api/sales/${id}/status`,{method:'PATCH',body:JSON.stringify({orderStatus:status})});await refresh();if(status==='Entregue')notify('Pedido entregue. Ele saiu do quadro operacional e foi para Concluídos.')}
+  const done=data?.sales.filter(s=>s.orderStatus==='Entregue'||s.orderStatus==='Cancelado')||[];
+  return <><PageHeader title="Pedidos" subtitle="O quadro mostra somente o que ainda exige ação. Entregues ficam no histórico de concluídos."/>
+    <div className="product-detail-tabs order-tabs"><button className={tab==='active'?'active':''} onClick={()=>setTab('active')}>Em andamento</button><button className={tab==='done'?'active':''} onClick={()=>setTab('done')}>Concluídos <span>{done.length}</span></button></div>
+    {tab==='active'?<div className="kanban kanban-operational">{activeColumns.map(col=>{const rows=data?.sales.filter(s=>s.orderStatus===col)||[];return <section className="kanban-column" key={col} onDragOver={e=>e.preventDefault()} onDrop={e=>void drop(e,col)}><header><div><span className={`status-dot dot-${col.toLowerCase()}`}/><strong>{col}</strong></div><b>{rows.length}</b></header><div className="kanban-list">{rows.map(s=><OrderCard sale={s} key={s.id}/>)}</div></section>})}<section className="kanban-column delivery-column" onDragOver={e=>e.preventDefault()} onDrop={e=>void drop(e,'Entregue')}><header><div><span className="status-dot dot-entregue"/><strong>Entregar</strong></div><CheckCircle2 size={15}/></header><div className="delivery-drop"><CheckCircle2 size={30}/><strong>Arraste o pedido pronto para cá</strong><span>Ao concluir, ele sai deste quadro e fica salvo em Concluídos.</span></div></section></div>:done.length?<section className="table-panel"><div className="table-scroll"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Status</th><th>Pagamento</th><th>Total</th><th>Criado em</th><th>Entregue em</th></tr></thead><tbody>{done.map(s=><tr key={s.id}><td><strong>{s.number}</strong></td><td>{s.customerName}</td><td><Badge tone={s.orderStatus==='Entregue'?'success':'danger'}>{s.orderStatus}</Badge></td><td><Badge tone={s.paymentStatus==='Pago'?'success':'warning'}>{s.paymentStatus}</Badge> <span className="cell-sub">{s.paymentMethod}</span></td><td>{money(s.total)}</td><td>{dateTime(s.createdAt)}</td><td>{s.deliveredAt?dateTime(s.deliveredAt):'—'}</td></tr>)}</tbody></table></div></section>:<EmptyState icon={<History/>} title="Nenhum pedido concluído" text="Pedidos entregues ou cancelados aparecerão aqui e não ocuparão o quadro operacional."/>}
+  </>
 }
 function OrderCard({sale}:{sale:Sale}){return <article className="order-card" draggable onDragStart={e=>e.dataTransfer.setData('text/plain',sale.id)}><div className="order-card-head"><div><strong>{sale.customerName}</strong><span>{sale.number}</span></div><GripVertical size={16}/></div><div className="order-card-items">{sale.items.slice(0,3).map(i=><span key={i.id}>{i.quantity}× {i.productName} · {[i.color,i.size].filter(Boolean).join(' ')}</span>)}</div><footer><div><strong>{money(sale.total)}</strong><Badge tone={sale.paymentStatus==='Pago'?'success':'warning'}>{sale.paymentMethod}</Badge></div><span>{dateTime(sale.createdAt)}</span></footer></article>}

@@ -8,14 +8,18 @@ import { api } from './lib/api';
 import { Customers } from './pages/Customers';
 import { Dashboard } from './pages/Dashboard';
 import { Entries } from './pages/Entries';
+import { Expenses } from './pages/Expenses';
 import { Finance } from './pages/Finance';
+import { ImportData } from './pages/ImportData';
 import { Inventory } from './pages/Inventory';
 import { Login } from './pages/Login';
 import { Orders } from './pages/Orders';
 import { Pricing } from './pages/Pricing';
 import { Products } from './pages/Products';
 import { Purchases } from './pages/Purchases';
+import { Receivables } from './pages/Receivables';
 import { Reports } from './pages/Reports';
+import { Returns } from './pages/Returns';
 import { SaleModal, Sales } from './pages/Sales';
 import { Settings } from './pages/Settings';
 import { Suppliers } from './pages/Suppliers';
@@ -30,19 +34,9 @@ function AppBody(){
   const openEntry=(productId='')=>{setPage('entries');setEntryRequest(r=>({signal:r.signal+1,productId}))};
   const openPricing=(productId='')=>{setPage('pricing');setPricingRequest(r=>({signal:r.signal+1,productId}))};
   const content=useMemo(()=>({
-    dashboard:<Dashboard/>,
-    sales:<Sales/>,
-    orders:<Orders/>,
-    customers:<Customers/>,
-    products:<Products onNewEntry={openEntry} onPricing={openPricing}/>,
-    inventory:<Inventory onNewEntry={()=>openEntry()}/>,
-    entries:<Entries openSignal={entryRequest.signal} initialProductId={entryRequest.productId}/>,
-    pricing:<Pricing openSignal={pricingRequest.signal} initialProductId={pricingRequest.productId}/>,
-    purchases:<Purchases/>,
-    suppliers:<Suppliers/>,
-    finance:<Finance/>,
-    reports:<Reports/>,
-    settings:<Settings/>
+    dashboard:<Dashboard/>,sales:<Sales/>,orders:<Orders/>,returns:<Returns/>,customers:<Customers/>,
+    products:<Products onNewEntry={openEntry} onPricing={openPricing}/>,inventory:<Inventory onNewEntry={()=>openEntry()}/>,entries:<Entries openSignal={entryRequest.signal} initialProductId={entryRequest.productId}/>,pricing:<Pricing openSignal={pricingRequest.signal} initialProductId={pricingRequest.productId}/>,
+    purchases:<Purchases/>,suppliers:<Suppliers/>,finance:<Finance/>,receivables:<Receivables/>,expenses:<Expenses/>,reports:<Reports/>,import:<ImportData/>,settings:<Settings/>
   })[page],[page,entryRequest.signal,entryRequest.productId,pricingRequest.signal,pricingRequest.productId]);
   if(loading)return <div className="app-loader"><LoaderCircle className="spin"/><span>Carregando YVIE...</span></div>;
   if(error)return <div className="fatal-state"><TriangleAlert/><h2>Não foi possível carregar o sistema</h2><p>{error}</p><Button onClick={()=>void refresh()}>Tentar novamente</Button></div>;
@@ -51,15 +45,6 @@ function AppBody(){
 
 export default function App(){
   const [auth,setAuth]=useState<'checking'|'in'|'out'>('checking');
-  useEffect(()=>{
-    api<{authenticated:boolean}>('/api/auth/session').then(r=>setAuth(r.authenticated?'in':'out')).catch(()=>setAuth('out'));
-    const unauthorized=()=>setAuth('out');
-    window.addEventListener('yvie:unauthorized',unauthorized);
-    return()=>window.removeEventListener('yvie:unauthorized',unauthorized);
-  },[]);
-  let content;
-  if(auth==='checking')content=<div className="app-loader"><LoaderCircle className="spin"/><span>Validando sessão...</span></div>;
-  else if(auth==='out')content=<Login onSuccess={()=>setAuth('in')}/>;
-  else content=<DataProvider><AppBody/></DataProvider>;
-  return <>{content}<ToastHost/></>;
+  useEffect(()=>{api<{authenticated:boolean}>('/api/auth/session').then(r=>setAuth(r.authenticated?'in':'out')).catch(()=>setAuth('out'));const unauthorized=()=>setAuth('out');window.addEventListener('yvie:unauthorized',unauthorized);return()=>window.removeEventListener('yvie:unauthorized',unauthorized)},[]);
+  let content;if(auth==='checking')content=<div className="app-loader"><LoaderCircle className="spin"/><span>Validando sessão...</span></div>;else if(auth==='out')content=<Login onSuccess={()=>setAuth('in')}/>;else content=<DataProvider><AppBody/></DataProvider>;return <>{content}<ToastHost/></>;
 }
