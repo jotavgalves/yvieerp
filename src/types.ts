@@ -276,6 +276,12 @@ export interface OwnerTransaction {
   createdAt: string;
 }
 
+export interface OwnerPolicy {
+  configured: boolean;
+  reservePercent: number;
+  monthlyProLabore: number;
+}
+
 export interface Summary {
   revenue: number;
   grossProfit: number;
@@ -314,5 +320,6 @@ export interface BootstrapData {
   customerCredits: CustomerCreditMovement[];
   inventoryCounts: InventoryCount[];
   ownerTransactions: OwnerTransaction[];
+  ownerPolicy: OwnerPolicy;
   summary: Summary;
 }
