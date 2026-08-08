@@ -27,7 +27,7 @@ import { Suppliers } from './pages/Suppliers';
 function AppBody(){
   const {data,loading,error,refresh}=useData();
   const [page,setPage]=useState<PageKey>(()=>(sessionStorage.getItem('yvie.page') as PageKey)||'dashboard');
-  const [saleOpen,setSaleOpen]=useState(false);
+  const [saleOpen,setSaleOpen]=useState(false);const [saleMode,setSaleMode]=useState<'sale'|'order'>('sale');
   const [entryRequest,setEntryRequest]=useState({signal:0,productId:''});
   const [pricingRequest,setPricingRequest]=useState({signal:0,productId:''});
   const [returnRequest,setReturnRequest]=useState({signal:0,saleId:''});
@@ -35,14 +35,15 @@ function AppBody(){
   const openEntry=(productId='')=>{setPage('entries');setEntryRequest(r=>({signal:r.signal+1,productId}))};
   const openPricing=(productId='')=>{setPage('pricing');setPricingRequest(r=>({signal:r.signal+1,productId}))};
   const openReturn=(saleId='')=>{setPage('returns');setReturnRequest(r=>({signal:r.signal+1,saleId}))};
+  const openSale=(mode:'sale'|'order')=>{setSaleMode(mode);setSaleOpen(true)};
   const content=useMemo(()=>({
-    dashboard:<Dashboard/>,sales:<Sales onReturn={openReturn}/>,orders:<Orders/>,returns:<Returns openSignal={returnRequest.signal} initialSaleId={returnRequest.saleId}/>,customers:<Customers/>,
+    dashboard:<Dashboard/>,sales:<Sales onReturn={openReturn}/>,orders:<Orders onNewOrder={()=>openSale('order')}/>,returns:<Returns openSignal={returnRequest.signal} initialSaleId={returnRequest.saleId}/>,customers:<Customers/>,
     products:<Products onNewEntry={openEntry} onPricing={openPricing}/>,inventory:<Inventory onNewEntry={()=>openEntry()}/>,entries:<Entries openSignal={entryRequest.signal} initialProductId={entryRequest.productId}/>,pricing:<Pricing openSignal={pricingRequest.signal} initialProductId={pricingRequest.productId}/>,
     purchases:<Purchases/>,suppliers:<Suppliers/>,finance:<Finance/>,receivables:<Receivables/>,expenses:<Expenses/>,reports:<Reports/>,import:<ImportData/>,settings:<Settings/>
   })[page],[page,entryRequest.signal,entryRequest.productId,pricingRequest.signal,pricingRequest.productId,returnRequest.signal,returnRequest.saleId]);
   if(loading)return <div className="app-loader"><LoaderCircle className="spin"/><span>Carregando YVIE...</span></div>;
   if(error)return <div className="fatal-state"><TriangleAlert/><h2>Não foi possível carregar o sistema</h2><p>{error}</p><Button onClick={()=>void refresh()}>Tentar novamente</Button></div>;
-  return <><AppShell page={page} onPage={setPage} data={data} onNewSale={()=>setSaleOpen(true)} onLogout={()=>window.location.reload()}>{content}</AppShell><SaleModal open={saleOpen} onClose={()=>setSaleOpen(false)}/></>;
+  return <><AppShell page={page} onPage={setPage} data={data} onNewSale={()=>openSale('sale')} onLogout={()=>window.location.reload()}>{content}</AppShell><SaleModal open={saleOpen} mode={saleMode} onClose={()=>setSaleOpen(false)}/></>;
 }
 
 export default function App(){
