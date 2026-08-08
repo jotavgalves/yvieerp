@@ -28,8 +28,8 @@ export async function createPurchase(request: Request, env: Env) {
   const normalized: Array<{variantId:string;productId:string;quantity:number;unitCost:number}> = [];
   for (const item of items) {
     const variantId = String(item.variantId);
-    const variant = await env.DB.prepare(`SELECT id,product_id,active FROM product_variants WHERE id=?`).bind(variantId).first<any>();
-    if (!variant || !variant.active) return fail('Uma das variantes não existe ou está inativa.', 409);
+    const variant = await env.DB.prepare(`SELECT v.id,v.product_id,v.active,p.status AS product_status FROM product_variants v JOIN products p ON p.id=v.product_id WHERE v.id=?`).bind(variantId).first<any>();
+    if (!variant || !variant.active || variant.product_status!=='Ativo') return fail('Uma das variantes não existe ou pertence a um produto inativo.', 409);
     normalized.push({ variantId, productId: variant.product_id, quantity: integer(item.quantity), unitCost: Math.max(0, number(item.unitCost)) });
   }
 
@@ -64,7 +64,7 @@ export async function receivePurchase(env: Env, id: string) {
   if (purchase.status === 'Cancelado') return fail('Uma compra cancelada não pode ser recebida.', 409);
 
   const result = await env.DB.prepare(`
-    SELECT pi.*,v.stock,v.average_cost,v.sale_price,v.active,p.name AS product_name
+    SELECT pi.*,v.stock,v.average_cost,v.sale_price,v.active,p.name AS product_name,p.status AS product_status
     FROM purchase_items pi
     JOIN product_variants v ON v.id=pi.variant_id
     JOIN products p ON p.id=pi.product_id
@@ -73,7 +73,7 @@ export async function receivePurchase(env: Env, id: string) {
   `).bind(id).all<any>();
   const items = result.results || [];
   if (!items.length) return fail('A compra não possui itens.', 409);
-  if (items.some(i => !i.active)) return fail('Uma variante desta compra foi desativada. Reative-a antes do recebimento.', 409);
+  if (items.some(i => !i.active || i.product_status!=='Ativo')) return fail('Um produto ou variante desta compra foi desativado. Reative-o antes do recebimento.', 409);
 
   const baseSubtotal = Number(purchase.items_subtotal || 0);
   const extra = Number(purchase.freight_cost || 0) + Number(purchase.other_cost || 0);
@@ -128,7 +128,7 @@ export async function receivePurchase(env: Env, id: string) {
     }
   }
 
-  statements.push(env.DB.prepare(`UPDATE purchases SET status='Recebido',received_at=?,updated_at=? WHERE id=?`).bind(timestamp, timestamp, id));
+  statements.push(env.DB.prepare(`UPDATE purchases SET status='Recebido',received_at=?,cancelled_at=NULL,reversed_at=NULL,reversal_reason=NULL,updated_at=? WHERE id=?`).bind(timestamp, timestamp, id));
   await env.DB.batch(statements);
   return json({ ok: true });
 }
@@ -136,8 +136,52 @@ export async function receivePurchase(env: Env, id: string) {
 export async function cancelPurchase(env: Env, id: string) {
   const current = await env.DB.prepare(`SELECT status FROM purchases WHERE id=?`).bind(id).first<{status:string}>();
   if (!current) return fail('Compra não encontrada.', 404);
-  if (current.status === 'Recebido') return fail('Uma compra já recebida não pode ser cancelada por aqui.', 409);
+  if (current.status === 'Recebido') return fail('Esta compra já entrou no estoque. Use Estornar recebimento para desfazer com segurança.', 409);
   if (current.status === 'Cancelado') return json({ ok: true });
-  await env.DB.prepare(`UPDATE purchases SET status='Cancelado',updated_at=? WHERE id=?`).bind(now(), id).run();
+  const timestamp=now();
+  await env.DB.prepare(`UPDATE purchases SET status='Cancelado',cancelled_at=?,updated_at=? WHERE id=?`).bind(timestamp,timestamp, id).run();
   return json({ ok: true });
+}
+
+export async function reversePurchase(env:Env,id:string){
+  const purchase=await env.DB.prepare(`SELECT p.*,s.name AS supplier_name FROM purchases p JOIN suppliers s ON s.id=p.supplier_id WHERE p.id=?`).bind(id).first<any>();
+  if(!purchase)return fail('Compra não encontrada.',404);
+  if(purchase.reversed_at)return json({ok:true});
+  if(purchase.status!=='Recebido')return fail('Somente uma compra recebida pode ter o recebimento estornado.',409);
+
+  const movements=await env.DB.prepare(`
+    SELECT m.product_id,m.variant_id,m.quantity,m.unit_cost,v.stock,v.average_cost,p.name AS product_name
+    FROM inventory_movements m
+    JOIN product_variants v ON v.id=m.variant_id
+    JOIN products p ON p.id=m.product_id
+    WHERE m.reference_type='purchase' AND m.reference_id=? AND m.type='Entrada'
+    ORDER BY m.created_at,m.id
+  `).bind(id).all<any>();
+  if(!(movements.results||[]).length)return fail('Não foi possível localizar a entrada de estoque vinculada a esta compra.',409);
+
+  const grouped=new Map<string,{productId:string;variantId:string;productName:string;qty:number,value:number;stock:number;averageCost:number}>();
+  for(const movement of movements.results||[]){
+    const current=grouped.get(movement.variant_id)||{productId:movement.product_id,variantId:movement.variant_id,productName:movement.product_name,qty:0,value:0,stock:Number(movement.stock),averageCost:Number(movement.average_cost)};
+    const qty=Number(movement.quantity||0);current.qty+=qty;current.value+=qty*Number(movement.unit_cost||0);grouped.set(movement.variant_id,current);
+  }
+
+  for(const row of grouped.values()){
+    const later=await env.DB.prepare(`SELECT COUNT(*) n FROM inventory_movements WHERE variant_id=? AND created_at>? AND NOT(reference_type='purchase' AND reference_id=?)`).bind(row.variantId,purchase.received_at,id).first<any>();
+    if(Number(later?.n||0)>0)return fail(`Não é seguro estornar ${purchase.number}: ${row.productName} teve movimentações depois do recebimento. Desfaça essas operações primeiro ou faça uma conferência de estoque.`,409);
+    if(row.stock<row.qty)return fail(`Não é possível estornar ${purchase.number}: o estoque atual de ${row.productName} é menor que a quantidade recebida.`,409);
+  }
+
+  const timestamp=now();const statements:D1PreparedStatement[]=[];
+  for(const row of grouped.values()){
+    const previousStock=row.stock-row.qty;const previousValue=(row.stock*row.averageCost)-row.value;
+    if(previousStock>0&&previousValue<-.01)return fail(`Não foi possível reconstruir com segurança o custo anterior de ${row.productName}. Faça uma conferência de estoque antes.`,409);
+    const previousAverage=previousStock>0?Math.max(0,previousValue/previousStock):0;const weightedCost=row.qty>0?row.value/row.qty:0;
+    statements.push(env.DB.prepare(`UPDATE product_variants SET stock=?,average_cost=?,updated_at=? WHERE id=?`).bind(previousStock,previousAverage,timestamp,row.variantId));
+    statements.push(env.DB.prepare(`INSERT INTO inventory_movements(id,product_id,variant_id,type,quantity,unit_cost,reference_type,reference_id,note,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`).bind(makeId('mov'),row.productId,row.variantId,'Cancelamento',-row.qty,weightedCost,'purchase_reversal',id,`Estorno ${purchase.number}`,timestamp));
+  }
+  const description=`${purchase.number} · ${purchase.supplier_name}`;
+  statements.push(env.DB.prepare(`UPDATE stock_entries SET deleted_at=?,deleted_reason=? WHERE description=? AND created_at=? AND deleted_at IS NULL`).bind(timestamp,`Estorno ${purchase.number}`,description,purchase.received_at));
+  statements.push(env.DB.prepare(`UPDATE purchases SET status='Cancelado',reversed_at=?,reversal_reason=?,updated_at=? WHERE id=?`).bind(timestamp,'Recebimento estornado',timestamp,id));
+  await env.DB.batch(statements);
+  return json({ok:true});
 }
