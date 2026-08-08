@@ -1,5 +1,15 @@
 PRAGMA foreign_keys = ON;
 
+ALTER TABLE sale_items ADD COLUMN returned_quantity INTEGER NOT NULL DEFAULT 0 CHECK (returned_quantity >= 0 AND returned_quantity <= quantity);
+
+UPDATE sale_items
+SET returned_quantity = COALESCE((
+  SELECT SUM(ri.quantity)
+  FROM return_items ri
+  JOIN returns r ON r.id = ri.return_id
+  WHERE ri.sale_item_id = sale_items.id AND ri.direction = 'Entrada'
+), 0);
+
 ALTER TABLE returns ADD COLUMN returned_value REAL NOT NULL DEFAULT 0 CHECK (returned_value >= 0);
 ALTER TABLE returns ADD COLUMN exchange_value REAL NOT NULL DEFAULT 0 CHECK (exchange_value >= 0);
 ALTER TABLE returns ADD COLUMN debt_offset REAL NOT NULL DEFAULT 0 CHECK (debt_offset >= 0);
