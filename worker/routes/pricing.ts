@@ -28,10 +28,12 @@ export async function savePricing(request:Request,env:Env,variantId:string){
   const cardPrice=cardFee>=100?cashPrice:roundMoney(cashPrice/(1-cardFee/100));
   if(cashPrice<=0||cardPrice<=0)return fail('Os preços calculados precisam ser maiores que zero.');
 
-  const id=makeId('prc'),timestamp=now();
+  const id=makeId('prc'),timestamp=now(),guard=`pricing:${variantId}`;
   await env.DB.batch([
+    env.DB.prepare(`INSERT INTO operation_guards(operation_key,created_at) VALUES(?,?)`).bind(guard,timestamp),
     env.DB.prepare(`UPDATE product_variants SET sale_price=?,cash_price=?,card_price=?,updated_at=? WHERE id=? AND active=1`).bind(cashPrice,cashPrice,cardPrice,timestamp,variantId),
-    env.DB.prepare(`INSERT INTO pricing_history(id,product_id,variant_id,piece_cost,freight_cost,other_cost,total_cost,target_margin,card_fee,cash_price,card_price,applied_price,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,variant.product_id,variantId,pieceCost,freightCost,otherCost,totalCost,targetMargin,cardFee,cashPrice,cardPrice,cashPrice,timestamp)
+    env.DB.prepare(`INSERT INTO pricing_history(id,product_id,variant_id,piece_cost,freight_cost,other_cost,total_cost,target_margin,card_fee,cash_price,card_price,applied_price,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,variant.product_id,variantId,pieceCost,freightCost,otherCost,totalCost,targetMargin,cardFee,cashPrice,cardPrice,cashPrice,timestamp),
+    env.DB.prepare(`DELETE FROM operation_guards WHERE operation_key=?`).bind(guard)
   ]);
 
   const persisted=await env.DB.prepare(`SELECT sale_price,cash_price,card_price,updated_at FROM product_variants WHERE id=?`).bind(variantId).first<any>();
