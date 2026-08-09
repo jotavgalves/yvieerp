@@ -7,6 +7,7 @@ import { dateTime, money } from '../lib/format';
 
 const round=(n:number)=>Math.round((n+Number.EPSILON)*100)/100;
 const margin=(price:number,cost:number)=>price>0?((price-cost)/price)*100:0;
+const inferredCardFee=(cash:number,card:number)=>card>0&&card>=cash?Math.max(0,Math.min(40,(1-cash/card)*100)):0;
 
 export function Pricing({openSignal=0,initialProductId=''}:{openSignal?:number;initialProductId?:string}){
   const {data,refresh}=useData();
@@ -24,23 +25,40 @@ export function Pricing({openSignal=0,initialProductId=''}:{openSignal?:number;i
   const product=data?.products.find(p=>p.id===productId);
   const variants=product?.variants.filter(v=>v.active)||[];
   const variant=variants.find(v=>v.id===variantId);
+  const selectedHistory=(data?.pricing||[]).filter(r=>r.variantId===variantId);
 
   function selectProduct(id:string){
     setProductId(id);
     const p=data?.products.find(x=>x.id===id);
     const v=p?.variants.find(x=>x.active);
     setVariantId(v?.id||'');
-    setPieceCost(v?.averageCost||0);
   }
-  function selectVariant(id:string){
-    setVariantId(id);
-    const v=variants.find(x=>x.id===id);
-    if(v)setPieceCost(v.averageCost);
-  }
+  function selectVariant(id:string){setVariantId(id)}
+
   useEffect(()=>{
     if(openSignal>0&&initialProductId)selectProduct(initialProductId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[openSignal,initialProductId]);
+
+  useEffect(()=>{
+    if(!variantId||!data)return;
+    const current=data.products.flatMap(p=>p.variants).find(v=>v.id===variantId);
+    if(!current)return;
+    const last=data.pricing.find(r=>r.variantId===variantId);
+    if(last){
+      setPieceCost(last.pieceCost);
+      setFreightCost(last.freightCost);
+      setOtherCost(last.otherCost);
+      setTargetMargin(last.targetMargin);
+      setCardFee(last.cardFee);
+      return;
+    }
+    setPieceCost(current.averageCost);
+    setFreightCost(0);
+    setOtherCost(0);
+    setTargetMargin(current.cashPrice>0?Math.max(0,Math.min(95,margin(current.cashPrice,current.averageCost))):55);
+    setCardFee(current.cardPrice>0?inferredCardFee(current.cashPrice,current.cardPrice):6.12);
+  },[variantId,data]);
 
   const totalCost=round(pieceCost+freightCost+otherCost);
   const cashPrice=targetMargin>=100?0:round(totalCost/(1-targetMargin/100));
@@ -48,7 +66,6 @@ export function Pricing({openSignal=0,initialProductId=''}:{openSignal?:number;i
   const cashProfit=round(cashPrice-totalCost);
   const cardNet=round(cardPrice*(1-cardFee/100));
   const cardProfit=round(cardNet-totalCost);
-  const selectedHistory=(data?.pricing||[]).filter(r=>r.variantId===variantId);
   const allVariants=data?.products.flatMap(p=>p.status==='Ativo'?p.variants.filter(v=>v.active).map(v=>({p,v})):[])||[];
   const lowMargin=allVariants.filter(({v})=>v.cashPrice>0&&margin(v.cashPrice,v.averageCost)<40).length;
   const belowCost=allVariants.filter(({v})=>v.cashPrice>0&&v.cashPrice<v.averageCost).length;
@@ -57,14 +74,15 @@ export function Pricing({openSignal=0,initialProductId=''}:{openSignal?:number;i
     if(!variant)return;
     setBusy(true);
     try{
-      await api(`/api/pricing/${variant.id}`,{method:'POST',body:JSON.stringify({pieceCost,freightCost,otherCost,targetMargin,cardFee})});
+      const saved=await api<{cashPrice:number;cardPrice:number;persisted:boolean}>(`/api/pricing/${variant.id}`,{method:'POST',body:JSON.stringify({pieceCost,freightCost,otherCost,targetMargin,cardFee})});
+      if(!saved.persisted)throw new Error('O banco não confirmou a precificação.');
       await refresh();
-      notify(`Preços salvos: ${money(cashPrice)} à vista e ${money(cardPrice)} no cartão.`);
+      notify(`Salvo no banco: ${money(saved.cashPrice)} à vista e ${money(saved.cardPrice)} no cartão.`);
     }finally{setBusy(false)}
   }
 
   return <>
-    <PageHeader title="Precificação" subtitle="Defina a margem uma vez e mantenha, para cada variante, um preço à vista e outro no cartão."/>
+    <PageHeader title="Precificação" subtitle="A Precificação é a única área que altera o preço de venda de variantes já cadastradas."/>
     <div className="stats-grid four pricing-stats">
       <StatCard label="Produtos ativos" value={String(data?.products.filter(p=>p.status==='Ativo').length||0)} note="Catálogo disponível" icon={<Tag size={16}/>}/>
       <StatCard label="Margem abaixo de 40%" value={String(lowMargin)} note="Com base no preço à vista" icon={<AlertTriangle size={16}/>}/>
@@ -83,16 +101,16 @@ export function Pricing({openSignal=0,initialProductId=''}:{openSignal?:number;i
       </section>
 
       <section className="pricing-workspace panel">
-        {!product||!variant?<EmptyState icon={<Calculator/>} title="Selecione um produto" text="A calculadora será aberta com o custo médio atual da variante."/>:<>
-          <div className="pricing-workspace-head"><div><span className="eyebrow">{product.category}</span><h2>{product.name}</h2><p>Custo médio atual {money(variant.averageCost)} · à vista {money(variant.cashPrice)} · cartão {money(variant.cardPrice)}</p></div><div className="pricing-current-margin"><span>Margem à vista</span><strong>{margin(variant.cashPrice,variant.averageCost).toFixed(1)}%</strong></div></div>
+        {!product||!variant?<EmptyState icon={<Calculator/>} title="Selecione um produto" text="A calculadora abrirá com a última precificação salva daquela variante."/>:<>
+          <div className="pricing-workspace-head"><div><span className="eyebrow">{product.category}</span><h2>{product.name}</h2><p>Custo médio atual {money(variant.averageCost)} · preço salvo à vista {money(variant.cashPrice)} · cartão {money(variant.cardPrice)}</p></div><div className="pricing-current-margin"><span>Margem atual</span><strong>{margin(variant.cashPrice,variant.averageCost).toFixed(1)}%</strong></div></div>
           <div className="pricing-variant-strip">{variants.map(v=><button key={v.id} className={v.id===variantId?'active':''} onClick={()=>selectVariant(v.id)}><strong>{[v.color,v.size].filter(Boolean).join(' · ')||'Sem variação'}</strong><span>{v.stock} un. · {money(v.cashPrice)} / {money(v.cardPrice)}</span></button>)}</div>
 
           <div className="pricing-form-grid">
-            <div className="pricing-block"><div className="pricing-block-title"><span>1</span><div><strong>Composição de custo</strong><small>Use o custo médio ou simule um novo cenário.</small></div></div><div className="form-grid"><Field label="Custo da peça"><Input type="number" min="0" step=".01" value={pieceCost} onChange={e=>setPieceCost(Number(e.target.value))}/></Field><Field label="Frete por peça"><Input type="number" min="0" step=".01" value={freightCost} onChange={e=>setFreightCost(Number(e.target.value))}/></Field><Field label="Outros custos" className="span-2"><Input type="number" min="0" step=".01" value={otherCost} onChange={e=>setOtherCost(Number(e.target.value))}/></Field></div><div className="pricing-total-line"><span>Custo total</span><strong>{money(totalCost)}</strong></div></div>
-            <div className="pricing-block"><div className="pricing-block-title"><span>2</span><div><strong>Estratégia</strong><small>Defina margem e taxa do cartão. Os dois preços são salvos juntos.</small></div></div><div className="form-grid"><Field label="Margem desejada %"><Input type="number" min="0" max="95" step=".1" value={targetMargin} onChange={e=>setTargetMargin(Number(e.target.value))}/></Field><Field label="Taxa cartão %"><Input type="number" min="0" max="40" step=".01" value={cardFee} onChange={e=>setCardFee(Number(e.target.value))}/></Field></div><div className="pricing-suggestions"><article><span>Preço à vista / Pix</span><strong>{money(cashPrice)}</strong><small>Lucro {money(cashProfit)} · margem {margin(cashPrice,totalCost).toFixed(1)}%</small></article><article><span>Preço no cartão</span><strong>{money(cardPrice)}</strong><small>Após taxa, lucro líquido {money(cardProfit)}</small></article></div></div>
+            <div className="pricing-block"><div className="pricing-block-title"><span>1</span><div><strong>Composição de custo</strong><small>{selectedHistory.length?'Valores restaurados da última precificação salva.':'Use o custo médio ou simule um novo cenário.'}</small></div></div><div className="form-grid"><Field label="Custo da peça"><Input type="number" min="0" step=".01" value={pieceCost} onChange={e=>setPieceCost(Number(e.target.value))}/></Field><Field label="Frete por peça"><Input type="number" min="0" step=".01" value={freightCost} onChange={e=>setFreightCost(Number(e.target.value))}/></Field><Field label="Outros custos" className="span-2"><Input type="number" min="0" step=".01" value={otherCost} onChange={e=>setOtherCost(Number(e.target.value))}/></Field></div><div className="pricing-total-line"><span>Custo total</span><strong>{money(totalCost)}</strong></div></div>
+            <div className="pricing-block"><div className="pricing-block-title"><span>2</span><div><strong>Estratégia</strong><small>Margem e taxa também são lembradas por variante; os dois preços são salvos juntos.</small></div></div><div className="form-grid"><Field label="Margem desejada %"><Input type="number" min="0" max="95" step=".1" value={targetMargin} onChange={e=>setTargetMargin(Number(e.target.value))}/></Field><Field label="Taxa cartão %"><Input type="number" min="0" max="40" step=".01" value={cardFee} onChange={e=>setCardFee(Number(e.target.value))}/></Field></div><div className="pricing-suggestions"><article><span>Preço à vista / Pix</span><strong>{money(cashPrice)}</strong><small>Lucro {money(cashProfit)} · margem {margin(cashPrice,totalCost).toFixed(1)}%</small></article><article><span>Preço no cartão</span><strong>{money(cardPrice)}</strong><small>Após taxa, lucro líquido {money(cardProfit)}</small></article></div></div>
           </div>
 
-          <div className="pricing-apply"><div><strong>Salvar os dois preços</strong><span>Você não escolhe um deles aqui. Na venda ou pedido, o sistema usa automaticamente o preço correto conforme a forma de pagamento.</span></div><div className="pricing-mode"><button className="active" type="button">À vista / Pix<br/><strong>{money(cashPrice)}</strong></button><button className="active" type="button">Cartão<br/><strong>{money(cardPrice)}</strong></button></div><Button variant="primary" loading={busy} onClick={savePrices}><Sparkles size={15}/>Salvar preços</Button></div>
+          <div className="pricing-apply"><div><strong>Salvar e confirmar no banco</strong><span>Depois de salvar, o Worker relê a variante no D1 e só confirma se os dois valores realmente permaneceram gravados.</span></div><div className="pricing-mode"><button className="active" type="button">À vista / Pix<br/><strong>{money(cashPrice)}</strong></button><button className="active" type="button">Cartão<br/><strong>{money(cardPrice)}</strong></button></div><Button variant="primary" loading={busy} onClick={savePrices}><Sparkles size={15}/>Salvar preços</Button></div>
         </>}
       </section>
     </div>
