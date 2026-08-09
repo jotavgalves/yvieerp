@@ -31,6 +31,9 @@ jobs:
       - name: D1 price persistence smoke test
         run: npx wrangler d1 execute DB --local --file=./scripts/price-persistence-smoke.sql
 
+      - name: D1 cost and stock capital smoke test
+        run: npx wrangler d1 execute DB --local --file=./scripts/cost-capital-smoke.sql
+
       - name: D1 operational integrity smoke test
         run: npx wrangler d1 execute DB --local --file=./scripts/integrity-smoke.sql
 

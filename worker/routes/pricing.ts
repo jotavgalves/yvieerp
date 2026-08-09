@@ -3,7 +3,6 @@ import { fail, json, readJson } from '../http';
 import type { Env } from '../types';
 
 interface PricingPayload {
-  pieceCost?: number;
   freightCost?: number;
   otherCost?: number;
   targetMargin?: number;
@@ -18,7 +17,8 @@ export async function savePricing(request:Request,env:Env,variantId:string){
   const variant=await env.DB.prepare(`SELECT id,product_id,average_cost FROM product_variants WHERE id=? AND active=1`).bind(variantId).first<any>();
   if(!variant)return fail('Variante não encontrada.',404);
 
-  const pieceCost=Math.max(0,number(input.pieceCost,number(variant.average_cost)));
+  // O custo da peça vem exclusivamente do estoque. Precificação decide preço, não reavalia capital.
+  const pieceCost=Math.max(0,number(variant.average_cost));
   const freightCost=Math.max(0,number(input.freightCost));
   const otherCost=Math.max(0,number(input.otherCost));
   const targetMargin=clamp(number(input.targetMargin,50),0,95);
@@ -36,7 +36,7 @@ export async function savePricing(request:Request,env:Env,variantId:string){
     env.DB.prepare(`DELETE FROM operation_guards WHERE operation_key=?`).bind(guard)
   ]);
 
-  const persisted=await env.DB.prepare(`SELECT sale_price,cash_price,card_price,updated_at FROM product_variants WHERE id=?`).bind(variantId).first<any>();
+  const persisted=await env.DB.prepare(`SELECT sale_price,cash_price,card_price,average_cost,updated_at FROM product_variants WHERE id=?`).bind(variantId).first<any>();
   if(!persisted)return fail('A variante deixou de existir durante a precificação.',409);
   const persistedCash=roundMoney(number(persisted.cash_price));
   const persistedCard=roundMoney(number(persisted.card_price));
@@ -44,5 +44,5 @@ export async function savePricing(request:Request,env:Env,variantId:string){
     return fail('O banco não confirmou os preços calculados. Nenhuma confirmação falsa foi exibida; atualize a tela e tente novamente.',409);
   }
 
-  return json({id,totalCost,cashPrice:persistedCash,cardPrice:persistedCard,persisted:true,updatedAt:persisted.updated_at},201);
+  return json({id,totalCost,pieceCost:roundMoney(number(persisted.average_cost)),cashPrice:persistedCash,cardPrice:persistedCard,persisted:true,updatedAt:persisted.updated_at},201);
 }

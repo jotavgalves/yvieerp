@@ -44,16 +44,16 @@ export function Pricing({openSignal=0,initialProductId=''}:{openSignal?:number;i
     if(!variantId||!data)return;
     const current=data.products.flatMap(p=>p.variants).find(v=>v.id===variantId);
     if(!current)return;
+    // O custo base é sempre o custo médio real do estoque. Histórico de preço não pode substituí-lo.
+    setPieceCost(current.averageCost);
     const last=data.pricing.find(r=>r.variantId===variantId);
     if(last){
-      setPieceCost(last.pieceCost);
       setFreightCost(last.freightCost);
       setOtherCost(last.otherCost);
       setTargetMargin(last.targetMargin);
       setCardFee(last.cardFee);
       return;
     }
-    setPieceCost(current.averageCost);
     setFreightCost(0);
     setOtherCost(0);
     setTargetMargin(current.cashPrice>0?Math.max(0,Math.min(95,margin(current.cashPrice,current.averageCost))):55);
@@ -74,15 +74,15 @@ export function Pricing({openSignal=0,initialProductId=''}:{openSignal?:number;i
     if(!variant)return;
     setBusy(true);
     try{
-      const saved=await api<{cashPrice:number;cardPrice:number;persisted:boolean}>(`/api/pricing/${variant.id}`,{method:'POST',body:JSON.stringify({pieceCost,freightCost,otherCost,targetMargin,cardFee})});
+      const saved=await api<{cashPrice:number;cardPrice:number;pieceCost:number;persisted:boolean}>(`/api/pricing/${variant.id}`,{method:'POST',body:JSON.stringify({freightCost,otherCost,targetMargin,cardFee})});
       if(!saved.persisted)throw new Error('O banco não confirmou a precificação.');
       await refresh();
-      notify(`Salvo no banco: ${money(saved.cashPrice)} à vista e ${money(saved.cardPrice)} no cartão.`);
+      notify(`Salvo no banco: ${money(saved.cashPrice)} à vista e ${money(saved.cardPrice)} no cartão. Custo real: ${money(saved.pieceCost)}.`);
     }finally{setBusy(false)}
   }
 
   return <>
-    <PageHeader title="Precificação" subtitle="A Precificação é a única área que altera o preço de venda de variantes já cadastradas."/>
+    <PageHeader title="Precificação" subtitle="Preço de venda e custo real são coisas diferentes: a Precificação usa o custo médio do Estoque e altera somente os preços de venda."/>
     <div className="stats-grid four pricing-stats">
       <StatCard label="Produtos ativos" value={String(data?.products.filter(p=>p.status==='Ativo').length||0)} note="Catálogo disponível" icon={<Tag size={16}/>}/>
       <StatCard label="Margem abaixo de 40%" value={String(lowMargin)} note="Com base no preço à vista" icon={<AlertTriangle size={16}/>}/>
@@ -101,20 +101,20 @@ export function Pricing({openSignal=0,initialProductId=''}:{openSignal?:number;i
       </section>
 
       <section className="pricing-workspace panel">
-        {!product||!variant?<EmptyState icon={<Calculator/>} title="Selecione um produto" text="A calculadora abrirá com a última precificação salva daquela variante."/>:<>
-          <div className="pricing-workspace-head"><div><span className="eyebrow">{product.category}</span><h2>{product.name}</h2><p>Custo médio atual {money(variant.averageCost)} · preço salvo à vista {money(variant.cashPrice)} · cartão {money(variant.cardPrice)}</p></div><div className="pricing-current-margin"><span>Margem atual</span><strong>{margin(variant.cashPrice,variant.averageCost).toFixed(1)}%</strong></div></div>
-          <div className="pricing-variant-strip">{variants.map(v=><button key={v.id} className={v.id===variantId?'active':''} onClick={()=>selectVariant(v.id)}><strong>{[v.color,v.size].filter(Boolean).join(' · ')||'Sem variação'}</strong><span>{v.stock} un. · {money(v.cashPrice)} / {money(v.cardPrice)}</span></button>)}</div>
+        {!product||!variant?<EmptyState icon={<Calculator/>} title="Selecione um produto" text="A calculadora usa o custo médio real do estoque e restaura a última estratégia de preço salva."/>:<>
+          <div className="pricing-workspace-head"><div><span className="eyebrow">{product.category}</span><h2>{product.name}</h2><p>Custo médio real {money(variant.averageCost)} · preço salvo à vista {money(variant.cashPrice)} · cartão {money(variant.cardPrice)}</p></div><div className="pricing-current-margin"><span>Margem atual</span><strong>{margin(variant.cashPrice,variant.averageCost).toFixed(1)}%</strong></div></div>
+          <div className="pricing-variant-strip">{variants.map(v=><button key={v.id} className={v.id===variantId?'active':''} onClick={()=>selectVariant(v.id)}><strong>{[v.color,v.size].filter(Boolean).join(' · ')||'Sem variação'}</strong><span>{v.stock} un. · custo {money(v.averageCost)} · {money(v.cashPrice)} / {money(v.cardPrice)}</span></button>)}</div>
 
           <div className="pricing-form-grid">
-            <div className="pricing-block"><div className="pricing-block-title"><span>1</span><div><strong>Composição de custo</strong><small>{selectedHistory.length?'Valores restaurados da última precificação salva.':'Use o custo médio ou simule um novo cenário.'}</small></div></div><div className="form-grid"><Field label="Custo da peça"><Input type="number" min="0" step=".01" value={pieceCost} onChange={e=>setPieceCost(Number(e.target.value))}/></Field><Field label="Frete por peça"><Input type="number" min="0" step=".01" value={freightCost} onChange={e=>setFreightCost(Number(e.target.value))}/></Field><Field label="Outros custos" className="span-2"><Input type="number" min="0" step=".01" value={otherCost} onChange={e=>setOtherCost(Number(e.target.value))}/></Field></div><div className="pricing-total-line"><span>Custo total</span><strong>{money(totalCost)}</strong></div></div>
-            <div className="pricing-block"><div className="pricing-block-title"><span>2</span><div><strong>Estratégia</strong><small>Margem e taxa também são lembradas por variante; os dois preços são salvos juntos.</small></div></div><div className="form-grid"><Field label="Margem desejada %"><Input type="number" min="0" max="95" step=".1" value={targetMargin} onChange={e=>setTargetMargin(Number(e.target.value))}/></Field><Field label="Taxa cartão %"><Input type="number" min="0" max="40" step=".01" value={cardFee} onChange={e=>setCardFee(Number(e.target.value))}/></Field></div><div className="pricing-suggestions"><article><span>Preço à vista / Pix</span><strong>{money(cashPrice)}</strong><small>Lucro {money(cashProfit)} · margem {margin(cashPrice,totalCost).toFixed(1)}%</small></article><article><span>Preço no cartão</span><strong>{money(cardPrice)}</strong><small>Após taxa, lucro líquido {money(cardProfit)}</small></article></div></div>
+            <div className="pricing-block"><div className="pricing-block-title"><span>1</span><div><strong>Composição de custo</strong><small>O custo da peça vem do estoque. Frete e outros custos podem ser adicionados à formação do preço sem reavaliar o estoque.</small></div></div><div className="form-grid"><Field label="Custo médio real" helper="Calculado por Entradas/Compras. Para corrigir um cadastro errado, use Estoque → Ajustar."><Input type="number" min="0" step=".01" value={pieceCost} disabled/></Field><Field label="Frete por peça"><Input type="number" min="0" step=".01" value={freightCost} onChange={e=>setFreightCost(Number(e.target.value))}/></Field><Field label="Outros custos" className="span-2"><Input type="number" min="0" step=".01" value={otherCost} onChange={e=>setOtherCost(Number(e.target.value))}/></Field></div><div className="pricing-total-line"><span>Custo usado para formar o preço</span><strong>{money(totalCost)}</strong></div></div>
+            <div className="pricing-block"><div className="pricing-block-title"><span>2</span><div><strong>Estratégia</strong><small>Margem e taxa são lembradas por variante; os dois preços são salvos juntos.</small></div></div><div className="form-grid"><Field label="Margem desejada %"><Input type="number" min="0" max="95" step=".1" value={targetMargin} onChange={e=>setTargetMargin(Number(e.target.value))}/></Field><Field label="Taxa cartão %"><Input type="number" min="0" max="40" step=".01" value={cardFee} onChange={e=>setCardFee(Number(e.target.value))}/></Field></div><div className="pricing-suggestions"><article><span>Preço à vista / Pix</span><strong>{money(cashPrice)}</strong><small>Lucro {money(cashProfit)} · margem {margin(cashPrice,totalCost).toFixed(1)}%</small></article><article><span>Preço no cartão</span><strong>{money(cardPrice)}</strong><small>Após taxa, lucro líquido {money(cardProfit)}</small></article></div></div>
           </div>
 
-          <div className="pricing-apply"><div><strong>Salvar e confirmar no banco</strong><span>Depois de salvar, o Worker relê a variante no D1 e só confirma se os dois valores realmente permaneceram gravados.</span></div><div className="pricing-mode"><button className="active" type="button">À vista / Pix<br/><strong>{money(cashPrice)}</strong></button><button className="active" type="button">Cartão<br/><strong>{money(cardPrice)}</strong></button></div><Button variant="primary" loading={busy} onClick={savePrices}><Sparkles size={15}/>Salvar preços</Button></div>
+          <div className="pricing-apply"><div><strong>Salvar e confirmar no banco</strong><span>O custo médio permanece sob controle do Estoque. Aqui são atualizados somente os preços à vista/Pix e cartão.</span></div><div className="pricing-mode"><button className="active" type="button">À vista / Pix<br/><strong>{money(cashPrice)}</strong></button><button className="active" type="button">Cartão<br/><strong>{money(cardPrice)}</strong></button></div><Button variant="primary" loading={busy} onClick={savePrices}><Sparkles size={15}/>Salvar preços</Button></div>
         </>}
       </section>
     </div>
 
-    <section className="panel pricing-history"><div className="panel-head"><div><h2>Histórico de precificação</h2><p>{variant?'Decisões registradas para a variante selecionada.':'Selecione uma variante para ver o histórico.'}</p></div><History size={18}/></div>{selectedHistory.length?<div className="table-scroll"><table><thead><tr><th>Data</th><th>Custo peça</th><th>Frete</th><th>Outros</th><th>Custo total</th><th>Margem alvo</th><th>Preço à vista</th><th>Preço cartão</th></tr></thead><tbody>{selectedHistory.map(r=><tr key={r.id}><td>{dateTime(r.createdAt)}</td><td>{money(r.pieceCost)}</td><td>{money(r.freightCost)}</td><td>{money(r.otherCost)}</td><td>{money(r.totalCost)}</td><td>{r.targetMargin.toFixed(1)}%</td><td><strong>{money(r.cashPrice)}</strong></td><td><strong>{money(r.cardPrice)}</strong></td></tr>)}</tbody></table></div>:<div className="pricing-history-empty"><CreditCard size={18}/><span>Nenhuma precificação registrada para esta variante.</span></div>}</section>
+    <section className="panel pricing-history"><div className="panel-head"><div><h2>Histórico de precificação</h2><p>{variant?'Decisões registradas para a variante selecionada.':'Selecione uma variante para ver o histórico.'}</p></div><History size={18}/></div>{selectedHistory.length?<div className="table-scroll"><table><thead><tr><th>Data</th><th>Custo real usado</th><th>Frete</th><th>Outros</th><th>Custo para preço</th><th>Margem alvo</th><th>Preço à vista</th><th>Preço cartão</th></tr></thead><tbody>{selectedHistory.map(r=><tr key={r.id}><td>{dateTime(r.createdAt)}</td><td>{money(r.pieceCost)}</td><td>{money(r.freightCost)}</td><td>{money(r.otherCost)}</td><td>{money(r.totalCost)}</td><td>{r.targetMargin.toFixed(1)}%</td><td><strong>{money(r.cashPrice)}</strong></td><td><strong>{money(r.cardPrice)}</strong></td></tr>)}</tbody></table></div>:<div className="pricing-history-empty"><CreditCard size={18}/><span>Nenhuma precificação registrada para esta variante.</span></div>}</section>
   </>
 }
