@@ -10,7 +10,7 @@ import { applyInventoryCount, cancelInventoryCount, createInventoryCount } from 
 import { deleteMedia, getMedia, uploadMedia } from './routes/media';
 import { getOwnerPolicy, saveOwnerPolicy } from './routes/ownerPolicy';
 import { createOwnerTransaction, deleteOwnerTransaction } from './routes/ownerTransactions';
-import { savePricing } from './routes/pricing';
+import { getProductPricingSettings, savePricing, saveProductPricingSettings, saveVariantPricingSettings } from './routes/pricing';
 import { archiveProduct, createProduct, deleteProduct, duplicateProduct, updateProduct } from './routes/products';
 import { cancelPurchase, createPurchase, receivePurchase, reversePurchase } from './routes/purchases';
 import { cancelReceivable, receiveReceivable } from './routes/receivables';
@@ -73,6 +73,11 @@ export default {
       const countApply=url.pathname.match(/^\/api\/inventory\/counts\/([^/]+)\/apply$/);if(countApply&&request.method==='POST')return applyInventoryCount(env,countApply[1]);
       const countCancel=url.pathname.match(/^\/api\/inventory\/counts\/([^/]+)\/cancel$/);if(countCancel&&request.method==='POST')return cancelInventoryCount(env,countCancel[1]);
 
+      const pricingProductSettings=url.pathname.match(/^\/api\/pricing\/products\/([^/]+)\/settings$/);
+      if(pricingProductSettings&&request.method==='GET')return getProductPricingSettings(env,pricingProductSettings[1]);
+      if(pricingProductSettings&&request.method==='PUT')return saveProductPricingSettings(request,env,pricingProductSettings[1]);
+      const pricingVariantSettings=url.pathname.match(/^\/api\/pricing\/variants\/([^/]+)\/settings$/);
+      if(pricingVariantSettings&&request.method==='PUT')return saveVariantPricingSettings(request,env,pricingVariantSettings[1]);
       const pricing=url.pathname.match(/^\/api\/pricing\/([^/]+)$/);if(pricing&&request.method==='POST')return savePricing(request,env,pricing[1]);
 
       if(url.pathname==='/api/sales'&&request.method==='POST')return createSale(request,env);
