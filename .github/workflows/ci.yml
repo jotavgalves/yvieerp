@@ -34,6 +34,9 @@ jobs:
       - name: D1 pricing hierarchy smoke test
         run: npx wrangler d1 execute DB --local --file=./scripts/pricing-hierarchy-smoke.sql
 
+      - name: D1 pricing cost components smoke test
+        run: npx wrangler d1 execute DB --local --file=./scripts/pricing-cost-components-smoke.sql
+
       - name: D1 cost and stock capital smoke test
         run: npx wrangler d1 execute DB --local --file=./scripts/cost-capital-smoke.sql
 
